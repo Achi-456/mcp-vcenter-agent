@@ -33,9 +33,40 @@ VCENTER_DESTRUCTIVE = frozenset(
 )
 
 
+# Tool-name prefixes that are always considered read-only inspections of vCenter state.
+_READ_ONLY_PREFIXES: tuple[str, ...] = ("list_", "get_", "query_", "find_", "describe_")
+
+# Explicit read-only allowlist for non-vCenter tools and any vCenter tool whose
+# name does not start with the standard read-only prefixes above.
+READ_ONLY_TOOLS: frozenset[str] = frozenset(
+    {
+        "web_search",
+        "emit_session_report",
+    }
+)
+
+
 def needs_cli_confirmation(name: str, tool_input: dict) -> bool:
     if name in VCENTER_DESTRUCTIVE:
         return True
     if name == "govc_command":
         return is_govc_likely_destructive(str((tool_input or {}).get("args", "") or ""))
     return False
+
+
+def is_read_only(name: str, tool_input: dict | None = None) -> bool:
+    """Return True if a tool call is safe to run concurrently with peers.
+
+    Conservative by default: only known read-only inspection tools qualify.
+    `govc_command` is always treated as serial because subcommands cannot be
+    parsed reliably without re-implementing govc's argument grammar.
+    """
+    if not name:
+        return False
+    if name in VCENTER_DESTRUCTIVE:
+        return False
+    if name == "govc_command":
+        return False
+    if name in READ_ONLY_TOOLS:
+        return True
+    return name.startswith(_READ_ONLY_PREFIXES)

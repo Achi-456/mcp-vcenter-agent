@@ -1573,7 +1573,13 @@ async function sendAI() {
           } else if (ev.type === 'reviewer' && ev.text) {
             appendAiLogLine(logEl, '[Peer review] ' + (ev.text || '').toString().slice(0, 2000));
           } else if (ev.type === 'reflection' && ev.nudge) {
-            appendAiLogLine(logEl, '[Reflection] ' + (ev.nudge || '').toString().slice(0, 400));
+            const used = ev.nudges_used != null ? ev.nudges_used : '?';
+            const max = ev.max_nudges != null ? ev.max_nudges : '?';
+            appendAiLogLine(logEl, '[Reflection ' + used + '/' + max + '] ' + (ev.nudge || '').toString().slice(0, 400));
+          } else if (ev.type === 'needs_human') {
+            const m = String(ev.message || 'Operator input required.').slice(0, 600);
+            appendAiLogLine(logEl, '[Action needed] ' + m);
+            try { toast('Action needed: ' + m, 'warn'); } catch (e) { /* toast unavailable */ }
           } else if (ev.type === 'error') {
             const errT = (ev.error || 'error');
             const errPlain = (full || '') + '\n\n⚠ ' + errT;
