@@ -1,0 +1,26 @@
+# Credentials — never bake into the image
+.env
+
+# Python artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Version control
+.git
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+
+# Docker files themselves (not needed inside container)
+Dockerfile
+docker-compose*.yml
+nginx.conf
+
+# Docs
+*.md
+deploy-ubuntu.md
