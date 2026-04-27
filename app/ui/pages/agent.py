@@ -149,7 +149,17 @@ def render_agent(state: dict) -> None:
                     ui.label(ev.get("error", "error")).classes("text-negative")
             elif t == "reflection":
                 with run_col:
-                    ui.label(f"Reflection: {ev.get('nudge', '')}").classes("text-caption")
+                    used = ev.get("nudges_used")
+                    max_n = ev.get("max_nudges")
+                    badge = (
+                        f" ({used}/{max_n})" if used is not None and max_n is not None else ""
+                    )
+                    ui.label(f"Reflection{badge}: {ev.get('nudge', '')}").classes("text-caption")
+            elif t == "needs_human":
+                with run_col:
+                    ui.label(
+                        f"Action needed: {ev.get('message', 'Operator input required.')}"
+                    ).classes("text-warning text-weight-medium")
             elif t == "reviewer":
                 with run_col:
                     with ui.expansion("Peer review", icon="rate_review").classes("w-full"):

@@ -19,17 +19,27 @@ def get_model() -> str:
 
 
 def planner_enabled() -> bool:
-    return os.environ.get("AGENT_PLANNER", "").strip().lower() in ("1", "true", "yes", "on")
+    """Pre-plan the user request as structured JSON before the main loop (default on)."""
+    return _env_truthy("AGENT_PLANNER", True)
 
 
 def reflection_enabled() -> bool:
-    """One optional between-turn nudge if the model may have stopped early (see engine)."""
+    """Up to N between-turn nudges if the model may have stopped early (see engine)."""
     return os.environ.get("AGENT_REFLECTION", "").strip().lower() in (
         "1",
         "true",
         "yes",
         "on",
     )
+
+
+def get_reflection_max_nudges() -> int:
+    """Maximum number of reflection nudges per session (AGENT_REFLECTION_MAX_NUDGES, default 3)."""
+    raw = os.environ.get("AGENT_REFLECTION_MAX_NUDGES", "3").strip()
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return 3
 
 
 def reviewer_enabled() -> bool:
@@ -40,6 +50,15 @@ def reviewer_enabled() -> bool:
         "yes",
         "on",
     )
+
+
+def get_reviewer_min_tool_turns() -> int:
+    """Minimum number of tool-use turns before the reviewer runs (AGENT_REVIEWER_MIN_TOOL_TURNS, default 3)."""
+    raw = os.environ.get("AGENT_REVIEWER_MIN_TOOL_TURNS", "3").strip()
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return 3
 
 
 def destructive_web_env_allowed() -> bool:

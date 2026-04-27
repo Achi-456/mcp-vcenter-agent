@@ -3,6 +3,7 @@ Shared multi-step, multi-provider tool loop for web (SSE) and CLI.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -13,6 +14,8 @@ from app.agent.config import (
     entity_cache_enabled,
     get_max_tokens,
     get_max_turns,
+    get_reflection_max_nudges,
+    get_reviewer_min_tool_turns,
     get_summary_interval,
     minitask_llm_enabled,
     planner_enabled,
@@ -22,29 +25,49 @@ from app.agent.config import (
     tool_cache_enabled,
 )
 from app.agent.entity_cache import EntityCache
-from app.agent.safety import needs_cli_confirmation
+from app.agent.safety import is_read_only, needs_cli_confirmation
 from app.llm.base import LLMProvider, NormalizedMessage, StepResult
 from app.tools.combined import build_combined_tools, execute_combined, reload_all_tools
 
 log = logging.getLogger(__name__)
 
 PLANNER_SYSTEM = """You are a planning module for a VMware vCenter admin assistant.
-The human message describes a task. Output a **short** numbered plan (3–8 steps) the assistant should follow.
-Use markdown numbered list. Do not call tools. Be specific to VMware / vCenter where relevant.
-If the request is a single quick question, output a single step.
-"""
+Read the human message describing a task and output a short execution plan as **JSON only** — no prose, no markdown fences, no commentary.
+
+Schema:
+{"steps": [{"id": <int>, "type": "query"|"mutate"|"report", "tool": "<optional tool name>", "desc": "<one short sentence>"}]}
+
+Rules:
+- 1 to 8 steps. IDs start at 1 and increase by 1.
+- type=query  → read-only inspection (list_*, get_*, govc info, web_search).
+- type=mutate → any change to vCenter (power, snapshot, clone, delete, maintenance mode, etc.).
+- type=report → final summary or emit_session_report.
+- Be specific to VMware / vCenter where relevant.
+- If the request is a single trivial question, return one step with type=report.
+- Output ONLY the JSON object."""
 
 REFLECTION_SYSTEM = """You are a strict task monitor for a vCenter admin assistant.
 Read the user task and a short summary of the last tool results.
 Output exactly two lines, no other text.
-Line 1: either the word COMPLETE or INCOMPLETE
-Line 2: If INCOMPLETE, one short sentence telling the assistant what to do next; if COMPLETE, the word done
-Do not use tools."""
+Line 1: exactly one of these tokens — COMPLETE, NEEDS_MORE_TOOLS, NEEDS_HUMAN
+Line 2: a short message:
+  - COMPLETE → the word done
+  - NEEDS_MORE_TOOLS → one short sentence telling the assistant what to do next
+  - NEEDS_HUMAN → one short sentence stating exactly what the operator must clarify or approve
+Do not use tools.
+
+Pick NEEDS_HUMAN when the task is blocked on a human decision (ambiguous target VM, missing credentials, destructive op needs explicit go-ahead, or contradictory requirements). Otherwise pick NEEDS_MORE_TOOLS or COMPLETE."""
 
 REVIEWER_SYSTEM = """You are a quality reviewer for a VMware vCenter admin assistant.
-Read the user request and the assistant's final answer. Check that the request is addressed and that
-claims match typical tool-usage patterns. Do not use tools.
-Output a short markdown block (3-6 bullet points): strengths, gaps, and one suggested follow-up for the operator."""
+Read the user request and the assistant's final answer. Do not use tools.
+
+First, answer this vCenter checklist with one short line each (yes/no plus a justification):
+1. Did the agent verify every VM/host/datastore name it referenced?
+2. Did it check alarm state and overall status where relevant?
+3. Were destructive operations confirmed and reported?
+4. Did it cite tool results for every claim about inventory state?
+
+Then output a short markdown block (3-6 bullets): **Strengths**, **Gaps**, and one **Follow-up** for the operator."""
 
 MINITASK_SYSTEM = """You summarize one agent turn for a vCenter administrator.
 Read the user task excerpt and a short JSON excerpt of tools just executed and their results.
@@ -70,11 +93,84 @@ def _tool_cache_key(tool_name: str, inp: dict) -> str:
     return json.dumps(payload, sort_keys=True, default=str)
 
 
-def _estimate_plan_steps(plan_markdown: str) -> int | None:
+_VALID_PLAN_TYPES = ("query", "mutate", "report")
+
+
+def _parse_plan_json(text: str) -> dict | None:
+    """Extract and validate a planner JSON object. Returns the dict or None on failure."""
+    if not (text or "").strip():
+        return None
+    try:
+        obj = json.loads(text)
+    except Exception:
+        # Pull the first {...} block out and try again.
+        m = re.search(r"\{[\s\S]*\}", text)
+        if not m:
+            return None
+        try:
+            obj = json.loads(m.group(0))
+        except Exception:
+            return None
+    if not isinstance(obj, dict):
+        return None
+    steps = obj.get("steps")
+    if not isinstance(steps, list) or not steps:
+        return None
+    cleaned: list[dict] = []
+    for i, raw in enumerate(steps, start=1):
+        if not isinstance(raw, dict):
+            continue
+        step_type = str(raw.get("type", "")).strip().lower()
+        if step_type not in _VALID_PLAN_TYPES:
+            continue
+        desc = str(raw.get("desc", "")).strip()
+        if not desc:
+            continue
+        try:
+            sid = int(raw.get("id", i))
+        except Exception:
+            sid = i
+        out: dict = {"id": sid, "type": step_type, "desc": desc[:300]}
+        tool = raw.get("tool")
+        if isinstance(tool, str) and tool.strip():
+            out["tool"] = tool.strip()[:80]
+        cleaned.append(out)
+    if not cleaned:
+        return None
+    return {"steps": cleaned}
+
+
+def _plan_to_markdown(plan_obj: dict) -> str:
+    """Render a parsed plan dict as a markdown numbered list for UI display."""
+    lines: list[str] = []
+    for step in plan_obj.get("steps", []):
+        sid = step.get("id", "?")
+        stype = step.get("type", "?")
+        tool = step.get("tool")
+        desc = step.get("desc", "")
+        suffix = f" — `{tool}`" if tool else ""
+        lines.append(f"{sid}. [{stype}] {desc}{suffix}")
+    return "\n".join(lines)
+
+
+def _estimate_plan_steps_markdown(plan_markdown: str) -> int | None:
+    """Fallback: count numbered list items in a markdown plan."""
     if not (plan_markdown or "").strip():
         return None
     n = len(re.findall(r"^\s*\d+\.\s", plan_markdown, re.MULTILINE))
     return n if n > 0 else None
+
+
+def _build_plan_system_block(plan_obj: dict) -> str:
+    """Embed the JSON plan as a machine-readable block to prepend to the system prompt each turn."""
+    plan_json = json.dumps(plan_obj, separators=(",", ":"))
+    return (
+        "## Execution plan (machine-readable)\n"
+        "Follow the plan below. Tick steps off as you complete them and reference each `step.id` in your reasoning. "
+        "Run `query` steps with read tools, `mutate` steps with write tools (after confirming any destructive op), "
+        "and `report` steps with a final summary or `emit_session_report`.\n"
+        f"```json\n{plan_json}\n```\n"
+    )
 
 
 def _deterministic_checkpoint_summary(
@@ -219,8 +315,12 @@ def _run_planner_pass(
     provider: LLMProvider,
     model: str,
     user_message: str,
-) -> str:
-    """Optional first pass: return plan markdown to append to the task (no tools, short)."""
+) -> tuple[dict | None, str]:
+    """First pass: ask the planner for JSON. Returns (plan_obj_or_None, raw_text).
+
+    The caller decides whether to use the structured plan or fall back to the raw text
+    rendered as markdown for UI display.
+    """
     planner_msgs: list[NormalizedMessage] = [
         {"role": "user", "content": user_message}
     ]
@@ -236,7 +336,7 @@ def _run_planner_pass(
             acc += ev.get("content", "")
         elif ev.get("type") == "step_result":
             break
-    return acc
+    return _parse_plan_json(acc), acc
 
 
 def _run_reflection_nudge(
@@ -244,9 +344,14 @@ def _run_reflection_nudge(
     model: str,
     user_task: str,
     last_tool_excerpt: str,
-) -> str | None:
-    """
-    If the model says INCOMPLETE, return the nudge line; else None.
+) -> dict:
+    """Run a reflection pass and return a 3-tier verdict.
+
+    Returns a dict with shape:
+        {"verdict": "COMPLETE" | "NEEDS_MORE_TOOLS" | "NEEDS_HUMAN", "message": str}
+
+    `message` is empty for COMPLETE; for the other two it is a single short sentence.
+    On any parse failure, returns COMPLETE so the loop falls through gracefully.
     """
     body = (
         f"User task:\n{user_task[:4000]}\n\n"
@@ -266,15 +371,80 @@ def _run_reflection_nudge(
             break
     lines = [x.strip() for x in (out or "").splitlines() if x.strip()]
     if not lines:
-        return None
-    head = lines[0].upper()
+        return {"verdict": "COMPLETE", "message": ""}
+    head = lines[0].upper().strip(" .:-")
+    message = lines[1] if len(lines) > 1 else ""
     if head.startswith("COMPLETE"):
-        return None
-    if head.startswith("INCOMPLETE"):
-        nudge = lines[1] if len(lines) > 1 else ""
-        if nudge and nudge.lower() != "done":
-            return nudge
-    return None
+        return {"verdict": "COMPLETE", "message": ""}
+    if head.startswith("NEEDS_HUMAN"):
+        return {"verdict": "NEEDS_HUMAN", "message": message or "Operator input required."}
+    if head.startswith("NEEDS_MORE_TOOLS") or head.startswith("INCOMPLETE"):
+        msg = message if message and message.lower() != "done" else ""
+        return {"verdict": "NEEDS_MORE_TOOLS", "message": msg}
+    return {"verdict": "COMPLETE", "message": ""}
+
+
+def _execute_tool_sync(
+    tool_name: str,
+    inp: dict,
+    dispatch: dict,
+) -> tuple[str, float]:
+    """Execute one tool call synchronously, returning (result_str, elapsed_ms).
+
+    Errors are caught and serialised into the result string (matching the
+    behaviour of the original inline loop).
+    """
+    t0 = time.perf_counter()
+    try:
+        result_data = execute_combined(tool_name, inp, dispatch)
+        result_str = json.dumps(result_data, default=str)
+    except Exception as exc:
+        result_str = json.dumps({"error": str(exc)})
+    elapsed_ms = (time.perf_counter() - t0) * 1000.0
+    return result_str, elapsed_ms
+
+
+def _can_parallelize_tool_uses(
+    tool_uses: list[dict],
+    cli_confirm: Optional[Callable[[str, dict], bool]],
+) -> bool:
+    """Return True only when every tool call in this turn is read-only and confirmation-free.
+
+    Order matters for write operations, so a single mutation in the batch falls
+    back to serial dispatch.
+    """
+    if len(tool_uses) <= 1:
+        return False
+    for tu in tool_uses:
+        name = tu.get("name", "")
+        inp = tu.get("input") or {}
+        if not is_read_only(name, inp):
+            return False
+        if cli_confirm is not None and needs_cli_confirmation(name, inp):
+            return False
+    return True
+
+
+def _run_tools_in_parallel(
+    tool_uses: list[dict],
+    dispatch: dict,
+) -> list[tuple[str, float]]:
+    """Run a batch of read-only tool calls concurrently via asyncio.to_thread.
+
+    Returns a list of (result_str, elapsed_ms) tuples in the same order as `tool_uses`.
+    Safe to call from a synchronous generator: spins up a private event loop.
+    """
+
+    async def _gather() -> list[tuple[str, float]]:
+        coros = [
+            asyncio.to_thread(
+                _execute_tool_sync, tu.get("name", ""), tu.get("input") or {}, dispatch
+            )
+            for tu in tool_uses
+        ]
+        return await asyncio.gather(*coros)
+
+    return asyncio.run(_gather())
 
 
 def _run_reviewer_pass(
@@ -331,8 +501,11 @@ def stream_agent_events(
         if isinstance(c0, str):
             user_task_for_meta = c0
 
-    reflection_nudge_used = False
+    reflection_nudges_used = 0
+    reflection_max_nudges = get_reflection_max_nudges()
+    tool_turns_used = 0
     plan_steps_estimate: int | None = None
+    plan_system_block: str = ""
     tool_cache: dict[str, str] = {}
     entity_cache = EntityCache()
 
@@ -346,16 +519,27 @@ def stream_agent_events(
                     "phase": "planner",
                     "message": "Generating execution plan…",
                 }
-                plan = _run_planner_pass(provider, model, uc)
-                plan_steps_estimate = _estimate_plan_steps(plan)
-                work[-1] = {
-                    **work[-1],
-                    "content": (
-                        f"{uc}\n\n---\n**Execution plan (auto-generated; follow as guidance)**\n{plan}\n"
-                    ),
-                }
-                if plan:
-                    yield {"type": "planner", "content": plan[:3000]}
+                plan_obj, plan_raw = _run_planner_pass(provider, model, uc)
+                if plan_obj:
+                    plan_steps_estimate = len(plan_obj["steps"])
+                    plan_system_block = _build_plan_system_block(plan_obj)
+                    plan_md = _plan_to_markdown(plan_obj)
+                    yield {
+                        "type": "planner",
+                        "content": plan_md[:3000],
+                        "plan": plan_obj,
+                    }
+                else:
+                    # Parse failure: keep the legacy markdown-on-user-message behaviour.
+                    plan_steps_estimate = _estimate_plan_steps_markdown(plan_raw)
+                    if plan_raw.strip():
+                        work[-1] = {
+                            **work[-1],
+                            "content": (
+                                f"{uc}\n\n---\n**Execution plan (auto-generated; follow as guidance)**\n{plan_raw}\n"
+                            ),
+                        }
+                        yield {"type": "planner", "content": plan_raw[:3000]}
             except Exception as e:
                 yield {"type": "error", "error": f"Planner failed: {e}"}
 
@@ -368,10 +552,16 @@ def stream_agent_events(
         tools, dispatch = tools_provider()
         yield {"type": "iteration", "n": turn + 1, "max": max_turns}
 
-        # Prepend entity-cache context block to the system prompt when populated.
+        # Prepend entity-cache + plan blocks to the system prompt each turn.
+        prefix_parts: list[str] = []
         if entity_cache_enabled():
             ctx = entity_cache.format_context_block()
-            effective_system = (ctx + "\n\n" + system_prompt) if ctx else system_prompt
+            if ctx:
+                prefix_parts.append(ctx)
+        if plan_system_block:
+            prefix_parts.append(plan_system_block)
+        if prefix_parts:
+            effective_system = "\n\n".join(prefix_parts) + "\n\n" + system_prompt
         else:
             effective_system = system_prompt
 
@@ -425,7 +615,12 @@ def stream_agent_events(
         if step.stop_reason != "tool_use" or not step.tool_uses:
             final_text = _full_text_block(step.text)
             review_text: str | None = None
-            if reviewer_enabled() and final_text:
+            reviewer_min = get_reviewer_min_tool_turns()
+            if (
+                reviewer_enabled()
+                and final_text
+                and tool_turns_used >= reviewer_min
+            ):
                 try:
                     yield {
                         "type": "busy",
@@ -465,37 +660,152 @@ def stream_agent_events(
             return
 
         work.append(step.assistant_message)
+        tool_turns_used += 1
 
         tool_results: list[dict] = []
         runs: list[tuple[str, bool]] = []
         use_cache = tool_cache_enabled()
+        parallel = _can_parallelize_tool_uses(step.tool_uses, cli_confirm)
 
-        for tu in step.tool_uses:
-            yield {"type": "tool_call", "tool": tu["name"], "args": tu.get("input") or {}}
-            inp = tu.get("input") or {}
-            cache_key = _tool_cache_key(tu["name"], inp)
-            from_cache = False
-            t0 = time.perf_counter()
-            needs_confirm = cli_confirm is not None and needs_cli_confirmation(
-                tu["name"], inp
-            )
+        if parallel:
+            # Pre-resolve cache hits and gather the rest concurrently; emit ordered events.
+            for tu in step.tool_uses:
+                yield {
+                    "type": "tool_call",
+                    "tool": tu["name"],
+                    "args": tu.get("input") or {},
+                }
 
-            if use_cache and not needs_confirm and cache_key in tool_cache:
-                result_str = tool_cache[cache_key]
-                from_cache = True
+            slots: list[dict[str, Any]] = []
+            to_execute: list[tuple[int, dict]] = []
+            for idx, tu in enumerate(step.tool_uses):
+                inp = tu.get("input") or {}
+                cache_key = _tool_cache_key(tu["name"], inp)
+                if use_cache and cache_key in tool_cache:
+                    slots.append(
+                        {
+                            "result_str": tool_cache[cache_key],
+                            "from_cache": True,
+                            "elapsed_ms": 0.0,
+                            "cache_key": cache_key,
+                        }
+                    )
+                else:
+                    slots.append(
+                        {
+                            "result_str": None,
+                            "from_cache": False,
+                            "elapsed_ms": 0.0,
+                            "cache_key": cache_key,
+                        }
+                    )
+                    to_execute.append((idx, tu))
+
+            if to_execute:
                 yield {
                     "type": "busy",
-                    "phase": "cache",
-                    "tool": tu["name"],
-                    "message": f"Using cached result for {tu['name']}…",
+                    "phase": "tool_parallel",
+                    "message": (
+                        f"Executing {len(to_execute)} read-only tools in parallel…"
+                    ),
                 }
-            elif needs_confirm:
-                if not cli_confirm(tu["name"], inp):
-                    result_str = json.dumps(
-                        {
-                            "status": "cancelled",
-                            "reason": "User cancelled the operation (or web confirmation not granted).",
+                try:
+                    par_results = _run_tools_in_parallel(
+                        [tu for _, tu in to_execute], dispatch
+                    )
+                except Exception as exc:
+                    log.warning("Parallel dispatch failed, falling back: %s", exc)
+                    par_results = [
+                        _execute_tool_sync(
+                            tu.get("name", ""), tu.get("input") or {}, dispatch
+                        )
+                        for _, tu in to_execute
+                    ]
+                for (idx, _tu), (result_str, elapsed_ms) in zip(to_execute, par_results):
+                    slots[idx]["result_str"] = result_str
+                    slots[idx]["elapsed_ms"] = elapsed_ms
+
+            for tu, slot in zip(step.tool_uses, slots):
+                result_str = slot["result_str"] or ""
+                from_cache = bool(slot["from_cache"])
+                if not from_cache:
+                    _store_tool_result_in_cache(
+                        tool_cache, use_cache, slot["cache_key"], result_str
+                    )
+                if from_cache:
+                    yield {
+                        "type": "busy",
+                        "phase": "cache",
+                        "tool": tu["name"],
+                        "message": f"Using cached result for {tu['name']}…",
+                    }
+                    log.info("agent tool tool=%s cached=yes", tu["name"])
+                else:
+                    log.info(
+                        "agent tool tool=%s ms=%.1f err=%s parallel=yes",
+                        tu["name"],
+                        slot["elapsed_ms"],
+                        "yes" if '"error"' in result_str[:200] else "no",
+                    )
+                yield {
+                    "type": "tool_result",
+                    "tool": tu["name"],
+                    "result": result_str[:2000],
+                    "full": result_str,
+                    "cached": from_cache,
+                }
+                tool_results.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": tu["id"],
+                        "content": result_str,
+                    }
+                )
+                runs.append((tu["name"], from_cache))
+                if entity_cache_enabled():
+                    entity_cache.update(tu["name"], result_str)
+        else:
+            for tu in step.tool_uses:
+                yield {
+                    "type": "tool_call",
+                    "tool": tu["name"],
+                    "args": tu.get("input") or {},
+                }
+                inp = tu.get("input") or {}
+                cache_key = _tool_cache_key(tu["name"], inp)
+                from_cache = False
+                t0 = time.perf_counter()
+                needs_confirm = cli_confirm is not None and needs_cli_confirmation(
+                    tu["name"], inp
+                )
+
+                if use_cache and not needs_confirm and cache_key in tool_cache:
+                    result_str = tool_cache[cache_key]
+                    from_cache = True
+                    yield {
+                        "type": "busy",
+                        "phase": "cache",
+                        "tool": tu["name"],
+                        "message": f"Using cached result for {tu['name']}…",
+                    }
+                elif needs_confirm:
+                    if not cli_confirm(tu["name"], inp):
+                        result_str = json.dumps(
+                            {
+                                "status": "cancelled",
+                                "reason": "User cancelled the operation (or web confirmation not granted).",
+                            }
+                        )
+                    else:
+                        yield {
+                            "type": "busy",
+                            "phase": "tool",
+                            "tool": tu["name"],
+                            "message": f"Executing {tu['name']} (vCenter / tools)…",
                         }
+                        result_str, _ = _execute_tool_sync(tu["name"], inp, dispatch)
+                    _store_tool_result_in_cache(
+                        tool_cache, use_cache, cache_key, result_str
                     )
                 else:
                     yield {
@@ -504,59 +814,39 @@ def stream_agent_events(
                         "tool": tu["name"],
                         "message": f"Executing {tu['name']} (vCenter / tools)…",
                     }
-                    try:
-                        result_data = execute_combined(tu["name"], inp, dispatch)
-                        result_str = json.dumps(result_data, default=str)
-                    except Exception as e:
-                        result_str = json.dumps({"error": str(e)})
-                _store_tool_result_in_cache(
-                    tool_cache, use_cache, cache_key, result_str
-                )
-            else:
+                    result_str, _ = _execute_tool_sync(tu["name"], inp, dispatch)
+                    _store_tool_result_in_cache(
+                        tool_cache, use_cache, cache_key, result_str
+                    )
+
+                if from_cache:
+                    log.info("agent tool tool=%s cached=yes", tu["name"])
+                else:
+                    elapsed_ms = (time.perf_counter() - t0) * 1000.0
+                    log.info(
+                        "agent tool tool=%s ms=%.1f err=%s",
+                        tu["name"],
+                        elapsed_ms,
+                        "yes" if '"error"' in result_str[:200] else "no",
+                    )
                 yield {
-                    "type": "busy",
-                    "phase": "tool",
-                    "tool": tu["name"],
-                    "message": f"Executing {tu['name']} (vCenter / tools)…",
-                }
-                try:
-                    result_data = execute_combined(tu["name"], inp, dispatch)
-                    result_str = json.dumps(result_data, default=str)
-                except Exception as e:
-                    result_str = json.dumps({"error": str(e)})
-                _store_tool_result_in_cache(
-                    tool_cache, use_cache, cache_key, result_str
-                )
-
-            if from_cache:
-                log.info("agent tool tool=%s cached=yes", tu["name"])
-            else:
-                elapsed_ms = (time.perf_counter() - t0) * 1000.0
-                log.info(
-                    "agent tool tool=%s ms=%.1f err=%s",
-                    tu["name"],
-                    elapsed_ms,
-                    "yes" if '"error"' in result_str[:200] else "no",
-                )
-            yield {
-                "type": "tool_result",
-                "tool": tu["name"],
-                "result": result_str[:2000],
-                "full": result_str,
-                "cached": from_cache,
-            }
-            tool_results.append(
-                {
                     "type": "tool_result",
-                    "tool_use_id": tu["id"],
-                    "content": result_str,
+                    "tool": tu["name"],
+                    "result": result_str[:2000],
+                    "full": result_str,
+                    "cached": from_cache,
                 }
-            )
-            runs.append((tu["name"], from_cache))
+                tool_results.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": tu["id"],
+                        "content": result_str,
+                    }
+                )
+                runs.append((tu["name"], from_cache))
 
-            # Update entity cache from this tool's result.
-            if entity_cache_enabled():
-                entity_cache.update(tu["name"], result_str)
+                if entity_cache_enabled():
+                    entity_cache.update(tu["name"], result_str)
 
         summary = _deterministic_checkpoint_summary(turn + 1, max_turns, runs)
         llm_note = ""
@@ -617,7 +907,7 @@ def stream_agent_events(
 
         if (
             reflection_enabled()
-            and not reflection_nudge_used
+            and reflection_nudges_used < reflection_max_nudges
             and turn < max_turns - 1
         ):
             try:
@@ -627,17 +917,38 @@ def stream_agent_events(
                     "message": "Checking whether more tools are needed…",
                 }
                 tr_json = json.dumps(tool_results, default=str)
-                nudge = _run_reflection_nudge(
+                verdict_obj = _run_reflection_nudge(
                     provider, model, user_task_for_meta, tr_json
                 )
-                if nudge:
+                verdict = verdict_obj.get("verdict", "COMPLETE")
+                message = verdict_obj.get("message", "")
+                if verdict == "NEEDS_HUMAN":
+                    yield {
+                        "type": "needs_human",
+                        "message": message or "Operator input required.",
+                    }
+                    final_text = _full_text_block(step.text)
+                    yield {
+                        "type": "done",
+                        "summary": _summary_from_text(step.text),
+                        "full_text": final_text,
+                        "review_text": None,
+                    }
+                    return
+                if verdict == "NEEDS_MORE_TOOLS" and message:
                     work.append(
                         {
                             "role": "user",
-                            "content": f"[System: continuation hint — run more tools if needed]\n{nudge}",
+                            "content": f"[System: continuation hint — run more tools if needed]\n{message}",
                         }
                     )
-                    reflection_nudge_used = True
-                    yield {"type": "reflection", "nudge": nudge}
+                    reflection_nudges_used += 1
+                    yield {
+                        "type": "reflection",
+                        "nudge": message,
+                        "verdict": verdict,
+                        "nudges_used": reflection_nudges_used,
+                        "max_nudges": reflection_max_nudges,
+                    }
             except Exception as e:
                 yield {"type": "error", "error": f"Reflection failed: {e}"}
