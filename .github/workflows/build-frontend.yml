@@ -1,0 +1,39 @@
+name: Build Next.js
+
+on:
+  push:
+    branches: [main-rke2-mcp]
+    paths:
+      - "apps/frontend/**"
+      - ".github/workflows/build-frontend.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: apps/frontend
+          push: true
+          build-args: |
+            NEXT_PUBLIC_API_URL=https://api.dclab.local
+            NEXT_PUBLIC_WS_URL=wss://api.dclab.local/ws
+            NEXT_PUBLIC_APP_NAME=vCenter Agentic Ops
+          tags: |
+            ghcr.io/achi-456/agentic-nextjs:0.7.0
+            ghcr.io/achi-456/agentic-nextjs:${{ github.sha }}

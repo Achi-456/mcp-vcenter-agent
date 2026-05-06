@@ -12,6 +12,7 @@ Run order:
 6. [Phase 05 - Argo CD GitOps Nerve Centre](PHASE-05-ARGOCD-GITOPS.md)
 7. [Phase 06 - Data Layer](PHASE-06-DATA-LAYER.md)
 8. [Phase 07 - App Layer](PHASE-07-APP-LAYER.md)
+9. [Phase 08 - Code Scaffold, CI, And First Real Images](PHASE-08-CODE-SCAFFOLD-CI.md)
 
 Lab defaults:
 
