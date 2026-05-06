@@ -14,6 +14,7 @@ Run order:
 8. [Phase 07 - App Layer](PHASE-07-APP-LAYER.md)
 9. [Phase 08 - Code Scaffold, CI, And First Real Images](PHASE-08-CODE-SCAFFOLD-CI.md)
 10. [Phase 09 - GitOps Adoption](PHASE-09-GITOPS-ADOPTION.md)
+11. [Phase 10 - MetalLB VIP, Hostname Rename, And CA Trust](PHASE-10-METALLB-VIP-CA-TRUST.md)
 
 Lab defaults:
 

@@ -10,10 +10,10 @@ spec:
   ingressClassName: nginx
   tls:
     - hosts:
-        - app.dclab.local
+        - infra-agent-console.dclab.local
       secretName: app-tls
   rules:
-    - host: app.dclab.local
+    - host: infra-agent-console.dclab.local
       http:
         paths:
           - path: /
