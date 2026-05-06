@@ -4,7 +4,7 @@ Deploy FastAPI, Next.js, and an internal MCP server into `agentic-app` on `agent
 
 This phase uses direct `kubectl apply`. Argo CD adoption is deferred until a Git repository URL and credentials are defined.
 
-Do not execute the deployment section until the image placeholders are replaced with real image references.
+Phase 08 produced the first real app images in GHCR, so this runbook now uses those images directly.
 
 ## Targets
 
@@ -48,9 +48,9 @@ kubectl get nodes --request-timeout=20s
 Replace these placeholders with real image references before deploying.
 
 ```powershell
-$FASTAPI_IMAGE="ghcr.io/<your-org>/agentic-fastapi:0.7.0"
-$NEXTJS_IMAGE="ghcr.io/<your-org>/agentic-nextjs:0.7.0"
-$MCP_IMAGE="ghcr.io/<your-org>/agentic-mcp:0.7.0"
+$FASTAPI_IMAGE="ghcr.io/achi-456/agentic-fastapi:0.7.0"
+$NEXTJS_IMAGE="ghcr.io/achi-456/agentic-nextjs:0.7.0"
+$MCP_IMAGE="ghcr.io/achi-456/agentic-mcp:0.7.0"
 
 if (($FASTAPI_IMAGE + $NEXTJS_IMAGE + $MCP_IMAGE) -match '<your-org>') {
   throw "STOP: replace image placeholders before Phase 07 deployment."
@@ -681,12 +681,21 @@ Rollout hangs:
 
 ## Commands Used In This Lab
 
-Phase 07 was not deployed during runbook creation because image references are still placeholders:
+Phase 07 was deployed after Phase 08 produced these real images:
 
 ```text
-ghcr.io/<your-org>/agentic-fastapi:0.7.0
-ghcr.io/<your-org>/agentic-nextjs:0.7.0
-ghcr.io/<your-org>/agentic-mcp:0.7.0
+ghcr.io/achi-456/agentic-fastapi:0.7.0
+ghcr.io/achi-456/agentic-nextjs:0.7.0
+ghcr.io/achi-456/agentic-mcp:0.7.0
 ```
 
-Replace them with real image references before executing sections 5 through 16.
+Validation passed:
+
+```text
+fastapi, nextjs, and mcp-server Running on agentic-worker-01.dclab.local
+https://api.dclab.local/health returned {"status":"ok"}
+https://api.dclab.local/ready returned {"status":"ready","db":"ok","redis":"ok"}
+https://app.dclab.local/api/health returned {"status":"ok"}
+MCP internal health returned {"status":"ok","tools":[],"resources":[],"prompts":[]}
+SSE stream-test emitted incremental token events
+```
