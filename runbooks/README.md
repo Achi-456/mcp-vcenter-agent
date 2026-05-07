@@ -15,6 +15,7 @@ Run order:
 9. [Phase 08 - Code Scaffold, CI, And First Real Images](PHASE-08-CODE-SCAFFOLD-CI.md)
 10. [Phase 09 - GitOps Adoption](PHASE-09-GITOPS-ADOPTION.md)
 11. [Phase 10 - MetalLB VIP, Hostname Rename, And CA Trust](PHASE-10-METALLB-VIP-CA-TRUST.md)
+12. [Phase 11 - Permanent Kubectl Tunnel](PHASE-11-PERMANENT-KUBECTL-TUNNEL.md)
 
 Lab defaults:
 
