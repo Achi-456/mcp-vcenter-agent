@@ -16,6 +16,7 @@ spec:
       labels:
         app: fastapi
     spec:
+      serviceAccountName: agentic-api
       nodeSelector:
         kubernetes.io/hostname: agentic-worker-01.dclab.local
         role: app-worker

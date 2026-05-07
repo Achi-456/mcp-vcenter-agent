@@ -1,11 +1,23 @@
 from fastapi import FastAPI, WebSocket
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.api.routes.agent import router as agent_router
+from app.api.routes.connections import router as connections_router
 from app.db.check import check_dependencies
 
 app = FastAPI(title="vCenter Agentic Ops API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://infra-agent-console.dclab.local", "http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(agent_router)
+app.include_router(connections_router)
 
 
 @app.get("/health")

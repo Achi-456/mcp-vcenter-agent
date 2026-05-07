@@ -1,117 +1,286 @@
 "use client"
 
 import { useEffect, useState, useCallback } from "react"
-import { api, type Setting } from "@/lib/api"
+import { api, type VCenterConnectionStatus, type LLMConnectionStatus } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-
-type Cat = "vcenter" | "llm" | "agent" | "user"
+import { Switch } from "@/components/ui/switch"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { toast } from "sonner"
+import { KeyRound, Server, CheckCircle2, XCircle } from "lucide-react"
 
 export default function SettingsPage() {
-  const [settings, setSettings] = useState<Setting[]>([])
-  const [editing, setEditing] = useState<Record<string, string>>({})
-  const [saving, setSaving] = useState<string | null>(null)
-  const [testResult, setTestResult] = useState<{ status: string; message: string } | null>(null)
-  const [activeCat, setActiveCat] = useState<Cat>("vcenter")
-  const [loading, setLoading] = useState(true)
-  const [status, setStatus] = useState<{ vcenter: { status: string }; llm: { status: string; provider: string } } | null>(null)
+  // vCenter state
+  const [vcStatus, setVcStatus] = useState<VCenterConnectionStatus | null>(null)
+  const [vcForm, setVcForm] = useState({ name: "dclab-vcenter", vcenter_url: "", username: "", password: "", verify_ssl: false })
+  const [vcTesting, setVcTesting] = useState(false)
+  const [vcSaving, setVcSaving] = useState(false)
+  const [vcDeleteOpen, setVcDeleteOpen] = useState(false)
 
-  const load = useCallback(async () => {
+  // LLM state
+  const [llmStatus, setLlmStatus] = useState<LLMConnectionStatus | null>(null)
+  const [llmForm, setLlmForm] = useState({ provider: "openai", base_url: "https://api.openai.com/v1", model: "gpt-4o", api_key: "" })
+  const [llmTesting, setLlmTesting] = useState(false)
+  const [llmSaving, setLlmSaving] = useState(false)
+  const [llmDeleteOpen, setLlmDeleteOpen] = useState(false)
+
+  const loadStatus = useCallback(async () => {
     try {
-      const d = await api.getSettings()
-      setSettings(d.items || [])
-      const init: Record<string, string> = {}
-      for (const s of d.items || []) init[s.key] = s.value || ""
-      setEditing(init)
-      const st = await api.getSettingsStatus()
-      setStatus(st)
-    } catch { /* offline */ } finally { setLoading(false) }
+      const [vc, llm] = await Promise.all([api.getVCenterConnectionStatus(), api.getLLMConnectionStatus()])
+      setVcStatus(vc)
+      setLlmStatus(llm)
+      if (vc.configured) setVcForm((p) => ({ ...p, vcenter_url: vc.vcenter_url || "", username: "" }))
+      if (llm.configured) setLlmForm((p) => ({ ...p, provider: llm.provider || "openai", base_url: llm.base_url || "", model: llm.model || "" }))
+    } catch {
+      // backend offline
+    }
   }, [])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { loadStatus() }, [loadStatus])
 
-  const save = async (key: string) => {
-    setSaving(key)
-    try { await api.updateSetting(key, editing[key] || ""); await load() }
-    catch { /* */ } finally { setSaving(null) }
+  // ── vCenter actions ──
+
+  const vcTest = async () => {
+    setVcTesting(true)
+    try {
+      const r = await api.testVCenterConnection(vcForm)
+      if (r.ok) toast.success(r.message)
+      else toast.error(r.message)
+    } catch (e: unknown) { toast.error(String(e)) }
+    finally { setVcTesting(false) }
   }
 
-  const test = async (kind: "vcenter" | "llm") => {
-    setTestResult(null)
-    try { setTestResult(kind === "vcenter" ? await api.testVcenter() : await api.testLLM()) }
-    catch (e: unknown) { setTestResult({ status: "error", message: String(e) }) }
+  const vcSave = async () => {
+    setVcSaving(true)
+    try {
+      const r = await api.saveVCenterConnection(vcForm)
+      if (r.ok) {
+        toast.success(r.message)
+        setVcForm((p) => ({ ...p, password: "" }))
+        await loadStatus()
+      } else {
+        toast.error(r.message)
+      }
+    } catch (e: unknown) { toast.error(String(e)) }
+    finally { setVcSaving(false) }
   }
 
-  const cats: { key: Cat; label: string }[] = [
-    { key: "vcenter", label: "vCenter" },
-    { key: "llm", label: "LLM" },
-    { key: "agent", label: "Agent" },
-    { key: "user", label: "User" },
-  ]
+  const vcDelete = async () => {
+    try {
+      await api.deleteVCenterConnection()
+      toast.success("vCenter credentials deleted")
+      setVcDeleteOpen(false)
+      await loadStatus()
+    } catch (e: unknown) { toast.error(String(e)) }
+  }
 
-  if (loading) return <p className="text-sm text-muted-foreground">Loading settings...</p>
+  // ── LLM actions ──
+
+  const llmTest = async () => {
+    setLlmTesting(true)
+    try {
+      const r = await api.testLLMConnection(llmForm)
+      if (r.ok) toast.success(r.message)
+      else toast.error(r.message)
+    } catch (e: unknown) { toast.error(String(e)) }
+    finally { setLlmTesting(false) }
+  }
+
+  const llmSave = async () => {
+    setLlmSaving(true)
+    try {
+      const r = await api.saveLLMConnection(llmForm)
+      if (r.ok) {
+        toast.success(r.message)
+        setLlmForm((p) => ({ ...p, api_key: "" }))
+        await loadStatus()
+      } else {
+        toast.error(r.message)
+      }
+    } catch (e: unknown) { toast.error(String(e)) }
+    finally { setLlmSaving(false) }
+  }
+
+  const llmDelete = async () => {
+    try {
+      await api.deleteLLMConnection()
+      toast.success("LLM credentials deleted")
+      setLlmDeleteOpen(false)
+      await loadStatus()
+    } catch (e: unknown) { toast.error(String(e)) }
+  }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8 max-w-2xl">
       <div>
         <h1 className="text-lg font-semibold">Settings</h1>
-        <p className="text-xs text-muted-foreground">
-          vCenter: {status?.vcenter?.status || "?"} · LLM: {status?.llm?.provider || "?"} ({status?.llm?.status || "?"})
-        </p>
+        <p className="text-xs text-muted-foreground">Credentials & Connections</p>
       </div>
 
-      <div className="flex gap-6">
-        <div className="w-40 space-y-0.5">
-          {cats.map((c) => (
-            <button
-              key={c.key}
-              onClick={() => setActiveCat(c.key)}
-              className={`block w-full rounded-lg px-3 py-2 text-left text-sm transition-colors ${
-                activeCat === c.key ? "bg-emerald-600/20 text-emerald-400" : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {c.label}
-            </button>
-          ))}
-        </div>
-
-        <div className="flex-1 max-w-lg space-y-4">
-          {settings.filter((s) => s.category === activeCat).map((s) => (
-            <Card key={s.key} className="border-border bg-card p-4 space-y-2">
-              <label className="text-xs font-medium text-muted-foreground">{s.label || s.key}</label>
-              <div className="flex gap-2">
-                <Input
-                  type={s.sensitive ? "password" : "text"}
-                  value={editing[s.key] ?? ""}
-                  onChange={(e) => setEditing((p) => ({ ...p, [s.key]: e.target.value }))}
-                  className="h-9 text-sm"
-                  placeholder={s.sensitive ? "••••••••" : ""}
-                />
-                <Button size="sm" variant="outline" onClick={() => save(s.key)} disabled={saving === s.key}>
-                  {saving === s.key ? "..." : "Save"}
-                </Button>
-              </div>
-            </Card>
-          ))}
-
-          {activeCat === "vcenter" && (
-            <Button variant="outline" size="sm" onClick={() => test("vcenter")}>Test vCenter Connection</Button>
-          )}
-          {activeCat === "llm" && (
-            <Button variant="outline" size="sm" onClick={() => test("llm")}>Test LLM Connection</Button>
-          )}
-
-          {testResult && (
-            <Card className={`p-3 text-sm ${
-              testResult.status === "ok" ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400" : "border-red-500/30 bg-red-500/10 text-red-400"
-            }`}>
-              {testResult.status === "ok" ? "OK: " : "Error: "}{testResult.message}
-            </Card>
+      {/* ── vCenter Card ── */}
+      <Card className="border-border bg-card p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Server className="h-4 w-4 text-emerald-400" />
+            <h2 className="text-sm font-semibold">vCenter Connection</h2>
+          </div>
+          {vcStatus?.configured ? (
+            <Badge className="bg-emerald-600/20 text-emerald-400">
+              <CheckCircle2 className="mr-1 h-3 w-3" />Configured
+            </Badge>
+          ) : (
+            <Badge variant="secondary">
+              <XCircle className="mr-1 h-3 w-3" />Not Configured
+            </Badge>
           )}
         </div>
-      </div>
+
+        {vcStatus?.configured && (
+          <div className="rounded-lg bg-muted/50 p-3 text-xs space-y-0.5">
+            <p><span className="text-muted-foreground">URL:</span> <span className="font-mono-code">{vcStatus.vcenter_url}</span></p>
+            <p><span className="text-muted-foreground">User:</span> <span className="font-mono-code">{vcStatus.username_hint}</span></p>
+            <p><span className="text-muted-foreground">Password:</span> {vcStatus.password_set ? "Saved" : "Not saved"}</p>
+            <p><span className="text-muted-foreground">Last Test:</span> {vcStatus.last_test_status || "Never"}</p>
+          </div>
+        )}
+
+        <div className="grid gap-3">
+          <div className="space-y-1">
+            <Label className="text-xs">Connection Name</Label>
+            <Input className="h-9 text-sm" value={vcForm.name} onChange={(e) => setVcForm((p) => ({ ...p, name: e.target.value }))} />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">vCenter URL</Label>
+            <Input className="h-9 text-sm" placeholder="https://vcenter.dclab.local" value={vcForm.vcenter_url} onChange={(e) => setVcForm((p) => ({ ...p, vcenter_url: e.target.value }))} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label className="text-xs">Username</Label>
+              <Input className="h-9 text-sm" placeholder="administrator@vsphere.local" value={vcForm.username} onChange={(e) => setVcForm((p) => ({ ...p, username: e.target.value }))} />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Password</Label>
+              <Input className="h-9 text-sm" type="password" placeholder={vcStatus?.configured ? "Replace password" : "Enter password"} value={vcForm.password} onChange={(e) => setVcForm((p) => ({ ...p, password: e.target.value }))} />
+            </div>
+          </div>
+          <div className="flex items-center space-x-2">
+            <Switch id="vc-ssl" checked={vcForm.verify_ssl} onCheckedChange={(v) => setVcForm((p) => ({ ...p, verify_ssl: v }))} />
+            <Label htmlFor="vc-ssl" className="text-xs">Verify SSL Certificate</Label>
+          </div>
+        </div>
+
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={vcTest} disabled={vcTesting || !vcForm.vcenter_url || !vcForm.username || !vcForm.password}>
+            {vcTesting ? "Testing..." : "Test Connection"}
+          </Button>
+          <Button size="sm" onClick={vcSave} disabled={vcSaving || !vcForm.vcenter_url || !vcForm.username || !vcForm.password}>
+            {vcSaving ? "Saving..." : "Save Credentials"}
+          </Button>
+          {vcStatus?.configured && (
+            <Button variant="destructive" size="sm" onClick={() => setVcDeleteOpen(true)}>Delete</Button>
+          )}
+        </div>
+      </Card>
+
+      {/* ── LLM Card ── */}
+      <Card className="border-border bg-card p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <KeyRound className="h-4 w-4 text-cyan-400" />
+            <h2 className="text-sm font-semibold">LLM Provider</h2>
+          </div>
+          {llmStatus?.configured ? (
+            <Badge className="bg-emerald-600/20 text-emerald-400">
+              <CheckCircle2 className="mr-1 h-3 w-3" />Configured
+            </Badge>
+          ) : (
+            <Badge variant="secondary">
+              <XCircle className="mr-1 h-3 w-3" />Not Configured
+            </Badge>
+          )}
+        </div>
+
+        {llmStatus?.configured && (
+          <div className="rounded-lg bg-muted/50 p-3 text-xs space-y-0.5">
+            <p><span className="text-muted-foreground">Provider:</span> {llmStatus.provider}</p>
+            <p><span className="text-muted-foreground">Model:</span> <span className="font-mono-code">{llmStatus.model}</span></p>
+            <p><span className="text-muted-foreground">API Key:</span> {llmStatus.api_key_set ? "Saved" : "Not saved"}</p>
+            <p><span className="text-muted-foreground">Last Test:</span> {llmStatus.last_test_status || "Never"}</p>
+          </div>
+        )}
+
+        <div className="grid gap-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label className="text-xs">Provider</Label>
+              <Input className="h-9 text-sm" value={llmForm.provider} onChange={(e) => setLlmForm((p) => ({ ...p, provider: e.target.value }))} />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Base URL</Label>
+              <Input className="h-9 text-sm" value={llmForm.base_url} onChange={(e) => setLlmForm((p) => ({ ...p, base_url: e.target.value }))} />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label className="text-xs">Model</Label>
+              <Input className="h-9 text-sm" value={llmForm.model} onChange={(e) => setLlmForm((p) => ({ ...p, model: e.target.value }))} />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">API Key</Label>
+              <Input className="h-9 text-sm" type="password" placeholder={llmStatus?.configured ? "Replace key" : "Enter key"} value={llmForm.api_key} onChange={(e) => setLlmForm((p) => ({ ...p, api_key: e.target.value }))} />
+            </div>
+          </div>
+        </div>
+
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={llmTest} disabled={llmTesting || !llmForm.api_key}>
+            {llmTesting ? "Testing..." : "Test LLM"}
+          </Button>
+          <Button size="sm" onClick={llmSave} disabled={llmSaving || !llmForm.api_key}>
+            {llmSaving ? "Saving..." : "Save Credentials"}
+          </Button>
+          {llmStatus?.configured && (
+            <Button variant="destructive" size="sm" onClick={() => setLlmDeleteOpen(true)}>Delete</Button>
+          )}
+        </div>
+      </Card>
+
+      {/* Delete Confirm Dialogs */}
+      <Dialog open={vcDeleteOpen} onOpenChange={setVcDeleteOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete vCenter Credentials?</DialogTitle>
+            <DialogDescription>This will remove the stored credentials. Inventory and agents will lose vCenter access.</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setVcDeleteOpen(false)}>Cancel</Button>
+            <Button variant="destructive" size="sm" onClick={vcDelete}>Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={llmDeleteOpen} onOpenChange={setLlmDeleteOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete LLM Credentials?</DialogTitle>
+            <DialogDescription>This will remove the stored API key. Chat and agent features will stop working.</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setLlmDeleteOpen(false)}>Cancel</Button>
+            <Button variant="destructive" size="sm" onClick={llmDelete}>Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

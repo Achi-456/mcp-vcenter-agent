@@ -40,9 +40,58 @@ export const api = {
   testLLM: () => request<{ status: string; message: string }>("/api/v1/settings/test/llm", { method: "POST" }),
   getSettingsStatus: () => request<{ vcenter: { status: string }; llm: { status: string; provider: string } }>("/api/v1/settings/status"),
 
+  // Connections (Phase 1.2)
+  testVCenterConnection: (payload: VCenterConnectionPayload) =>
+    request<VCenterTestResponse>("/api/v1/connections/vcenter/test", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  saveVCenterConnection: (payload: VCenterConnectionPayload) =>
+    request<VCenterSaveResponse>("/api/v1/connections/vcenter", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  getVCenterConnectionStatus: () =>
+    request<VCenterConnectionStatus>("/api/v1/connections/vcenter/status"),
+  deleteVCenterConnection: () =>
+    request<ConnectionDeleteResponse>("/api/v1/connections/vcenter", { method: "DELETE" }),
+  testLLMConnection: (payload: LLMConnectionPayload) =>
+    request<LLMTestResponse>("/api/v1/connections/llm/test", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  saveLLMConnection: (payload: LLMConnectionPayload) =>
+    request<LLMSaveResponse>("/api/v1/connections/llm", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  getLLMConnectionStatus: () =>
+    request<LLMConnectionStatus>("/api/v1/connections/llm/status"),
+  deleteLLMConnection: () =>
+    request<ConnectionDeleteResponse>("/api/v1/connections/llm", { method: "DELETE" }),
+
   // Tools
   getTools: () => request<{ tools: Tool[] }>("/api/v1/tools"),
 }
+
+export interface VCenterConnectionPayload {
+  name: string; vcenter_url: string; username: string; password: string; verify_ssl: boolean
+}
+export interface VCenterTestResponse { ok: boolean; status: string; message: string; error_code: string | null }
+export interface VCenterConnectionStatus {
+  configured: boolean; name: string | null; vcenter_url: string | null
+  username_hint: string | null; verify_ssl: boolean | null; password_set: boolean
+  last_test_status: string | null; last_tested_at: string | null
+}
+export interface VCenterSaveResponse { ok: boolean; status: string; message: string; connection: VCenterConnectionStatus | null }
+export interface LLMConnectionPayload { provider: string; base_url: string; model: string; api_key: string }
+export interface LLMTestResponse { ok: boolean; status: string; message: string; error_code: string | null }
+export interface LLMConnectionStatus {
+  configured: boolean; provider: string | null; base_url: string | null
+  model: string | null; api_key_set: boolean; last_test_status: string | null; last_tested_at: string | null
+}
+export interface LLMSaveResponse { ok: boolean; status: string; message: string; connection: LLMConnectionStatus | null }
+export interface ConnectionDeleteResponse { ok: boolean; status: string; message: string }
 
 export interface VM {
   name: string; moid: string; power_state: string; cpu: number; memory_mb: number
