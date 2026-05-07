@@ -1,9 +1,11 @@
 from fastapi import FastAPI, WebSocket
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from app.api.routes.agent import router as agent_router
 from app.db.check import check_dependencies
 
 app = FastAPI(title="vCenter Agentic Ops API")
+app.include_router(agent_router)
 
 
 @app.get("/health")

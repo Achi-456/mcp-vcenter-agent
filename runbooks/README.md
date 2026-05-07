@@ -16,6 +16,7 @@ Run order:
 10. [Phase 09 - GitOps Adoption](PHASE-09-GITOPS-ADOPTION.md)
 11. [Phase 10 - MetalLB VIP, Hostname Rename, And CA Trust](PHASE-10-METALLB-VIP-CA-TRUST.md)
 12. [Phase 11 - Permanent Kubectl Tunnel](PHASE-11-PERMANENT-KUBECTL-TUNNEL.md)
+13. [Phase 12 - Agent Engine Skeleton](PHASE-12-AGENT-ENGINE-SKELETON.md)
 
 Lab defaults:
 
