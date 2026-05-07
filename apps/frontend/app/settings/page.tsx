@@ -150,7 +150,7 @@ export default function SettingsPage() {
             <p><span className="text-muted-foreground">URL:</span> <span className="font-mono-code">{vcStatus.vcenter_url}</span></p>
             <p><span className="text-muted-foreground">User:</span> <span className="font-mono-code">{vcStatus.username_hint}</span></p>
             <p><span className="text-muted-foreground">Password:</span> {vcStatus.password_set ? "Saved" : "Not saved"}</p>
-            <p><span className="text-muted-foreground">Last Test:</span> {vcStatus.last_test_status || "Never"}</p>
+            <p><span className="text-muted-foreground">Last Test:</span> {vcStatus.last_test_status || "Never"}{vcStatus.last_tested_at ? ` — ${new Date(vcStatus.last_tested_at).toLocaleString()}` : ""}</p>
           </div>
         )}
 
@@ -173,9 +173,14 @@ export default function SettingsPage() {
               <Input className="h-9 text-sm" type="password" placeholder={vcStatus?.configured ? "Replace password" : "Enter password"} value={vcForm.password} onChange={(e) => setVcForm((p) => ({ ...p, password: e.target.value }))} />
             </div>
           </div>
-          <div className="flex items-center space-x-2">
-            <Switch id="vc-ssl" checked={vcForm.verify_ssl} onCheckedChange={(v) => setVcForm((p) => ({ ...p, verify_ssl: v }))} />
-            <Label htmlFor="vc-ssl" className="text-xs">Verify SSL Certificate</Label>
+          <div className="space-y-1.5">
+            <div className="flex items-center space-x-2">
+              <Switch id="vc-ssl" checked={vcForm.verify_ssl} onCheckedChange={(v) => setVcForm((p) => ({ ...p, verify_ssl: v }))} />
+              <Label htmlFor="vc-ssl" className="text-xs">Verify SSL certificate</Label>
+            </div>
+            <p className="text-[11px] text-muted-foreground pl-8">
+              Turn off for self-signed vCenter certificates in lab environments.
+            </p>
           </div>
         </div>
 
@@ -183,7 +188,7 @@ export default function SettingsPage() {
           <Button variant="outline" size="sm" onClick={vcTest} disabled={vcTesting || !vcForm.vcenter_url || !vcForm.username || !vcForm.password}>
             {vcTesting ? "Testing..." : "Test Connection"}
           </Button>
-          <Button size="sm" onClick={vcSave} disabled={vcSaving || !vcForm.vcenter_url || !vcForm.username || !vcForm.password}>
+          <Button size="sm" onClick={vcSave} disabled={vcSaving || !vcForm.password}>
             {vcSaving ? "Saving..." : "Save Credentials"}
           </Button>
           {vcStatus?.configured && (
@@ -215,7 +220,7 @@ export default function SettingsPage() {
             <p><span className="text-muted-foreground">Provider:</span> {llmStatus.provider}</p>
             <p><span className="text-muted-foreground">Model:</span> <span className="font-mono-code">{llmStatus.model}</span></p>
             <p><span className="text-muted-foreground">API Key:</span> {llmStatus.api_key_set ? "Saved" : "Not saved"}</p>
-            <p><span className="text-muted-foreground">Last Test:</span> {llmStatus.last_test_status || "Never"}</p>
+            <p><span className="text-muted-foreground">Last Test:</span> {llmStatus.last_test_status || "Never"}{llmStatus.last_tested_at ? ` — ${new Date(llmStatus.last_tested_at).toLocaleString()}` : ""}</p>
           </div>
         )}
 

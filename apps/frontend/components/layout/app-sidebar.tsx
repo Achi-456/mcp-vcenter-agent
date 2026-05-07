@@ -1,8 +1,10 @@
 "use client"
 
+import { useEffect, useState, useCallback } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
+import { api } from "@/lib/api"
 import {
   MessageSquare,
   Server,
@@ -20,8 +22,41 @@ const navItems = [
   { href: "/health", label: "System Health", icon: Activity },
 ]
 
+type Status = "ok" | "error" | "checking"
+
 export function AppSidebar() {
   const pathname = usePathname()
+  const [apiStatus, setApiStatus] = useState<Status>("checking")
+  const [vcStatus, setVcStatus] = useState<Status>("checking")
+  const [agentStatus, setAgentStatus] = useState<Status>("checking")
+
+  const check = useCallback(async () => {
+    try {
+      const h = await api.health()
+      setApiStatus(h.status === "ok" ? "ok" : "error")
+    } catch {
+      setApiStatus("error")
+    }
+
+    try {
+      const c = await api.getVCenterConnectionStatus()
+      setVcStatus(c.configured ? "ok" : "error")
+    } catch {
+      setVcStatus("error")
+    }
+
+    try {
+      setAgentStatus("checking")
+    } catch {
+      setAgentStatus("error")
+    }
+  }, [])
+
+  useEffect(() => {
+    check()
+    const i = setInterval(check, 30000)
+    return () => clearInterval(i)
+  }, [check])
 
   return (
     <aside className="fixed left-0 top-0 flex h-screen w-[260px] flex-col bg-sidebar border-r border-sidebar-border">
@@ -61,25 +96,30 @@ export function AppSidebar() {
       </nav>
 
       <div className="border-t border-sidebar-border px-3 py-4 space-y-2">
-        <StatusBadge label="API" status="checking" />
-        <StatusBadge label="vCenter" status="checking" />
-        <StatusBadge label="Agent" status="checking" />
+        <StatusBadge label="API" status={apiStatus} />
+        <StatusBadge label="vCenter" status={vcStatus} />
+        <StatusBadge label="Agent" status={agentStatus} />
       </div>
     </aside>
   )
 }
 
-function StatusBadge({ label, status }: { label: string; status: "ok" | "error" | "checking" }) {
-  const colors = {
+function StatusBadge({ label, status }: { label: string; status: Status }) {
+  const colors: Record<Status, string> = {
     ok: "bg-emerald-500",
     error: "bg-red-500",
     checking: "bg-amber-500",
+  }
+  const text: Record<Status, string> = {
+    ok: "online",
+    error: "offline",
+    checking: "checking",
   }
   return (
     <div className="flex items-center gap-2 text-xs">
       <span className={cn("h-2 w-2 rounded-full", colors[status])} />
       <span className="text-sidebar-foreground/60">{label}</span>
-      <span className="text-sidebar-foreground/40">{status === "checking" ? "checking" : status}</span>
+      <span className="text-sidebar-foreground/40">{text[status]}</span>
     </div>
   )
 }
