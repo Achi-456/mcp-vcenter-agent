@@ -25,11 +25,14 @@ validated with `pip install --dry-run` in `python:3.12-slim`:
 
 ```text
 langgraph==0.2.74
-langchain-core==0.3.37
+langchain-core==0.3.81
 langgraph-checkpoint-postgres==2.0.0
 psycopg[binary]==3.2.1
 pydantic==2.7.4
 ```
+
+`langchain-core==0.3.81` is the minimum 0.x-line patch for
+CVE-2025-68664; do not lower it when refreshing dependency pins.
 
 `AsyncPostgresSaver.from_conn_string()` is used as a long-lived async context
 manager. The package creates its psycopg connection with `autocommit=True`, so
