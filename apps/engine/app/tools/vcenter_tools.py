@@ -279,22 +279,20 @@ async def _execute_list_tools(spec: ToolSpec, args: dict) -> dict:
 async def _execute_inventory_tool(spec: ToolSpec, args: dict) -> dict:
     refresh = args.pop("refresh", False)
     params = {}
-    if spec.name == "get_vm_details":
-        vm_name = args.get("vm_name", args.get("name", ""))
-        if not vm_name:
-            return {"ok": False, "error_code": "MISSING_PARAMETER", "message": "vm_name is required.", "tool": spec.name}
-        params["name"] = vm_name
+    name_arg = args.get("name", args.get("q", args.get("host_name", args.get("vm_name", ""))))
+    if name_arg and spec.name in ("get_vm_details", "get_host_details", "search_inventory_object"):
+        key = "q" if spec.name == "search_inventory_object" else "name"
+        params[key] = name_arg
     if refresh:
         params["refresh"] = "true"
 
     result = await call_backend_get(spec.backend_endpoint, params=params)
     if not result.get("ok"):
-        data = result.get("data", {})
         return {
             "ok": False,
             "tool": spec.name,
-            "error_code": data.get("error_code", "BACKEND_ERROR"),
-            "message": data.get("message", "Backend request failed"),
+            "error_code": result.get("error_code", "BACKEND_ERROR"),
+            "message": result.get("message", "Backend request failed"),
         }
 
     data = result.get("data", {})
@@ -326,6 +324,10 @@ async def _execute_inventory_tool(spec: ToolSpec, args: dict) -> dict:
         if vm and "power_state" in vm:
             return {"ok": True, "tool": spec.name, "data": vm}
         return {"ok": False, "tool": spec.name, "error_code": "VM_NOT_FOUND", "message": "VM not found in the response."}
+
+    if spec.name == "search_inventory_object":
+        matches = data.get("matches", [])
+        return {"ok": True, "tool": spec.name, "count": len(matches), "items": matches}
 
     return {"ok": True, "tool": spec.name, "data": data}
 
