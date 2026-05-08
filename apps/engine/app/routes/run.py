@@ -28,9 +28,20 @@ async def run_agent(request: RunRequest) -> StreamingResponse:
                 "session_id": session_id,
                 "user_message": request.message,
                 "messages": [],
+                "provider": "gemini",
+                "model": "gemini-2.5-flash",
+                "allow_high_risk": False,
+                "page_context": None,
                 "turn": 0,
-                "cached_result": None,
+                "intent": "",
+                "entity": None,
+                "safety_verdict": None,
+                "selected_tools": [],
+                "tool_results": [],
                 "final_answer": None,
+                "suggested_next": None,
+                "error": None,
+                "status": "thinking",
             }
 
             yield f"data: {json.dumps({'type': 'session', 'session_id': session_id})}\n\n"

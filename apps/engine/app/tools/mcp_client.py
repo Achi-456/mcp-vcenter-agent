@@ -32,10 +32,22 @@ async def execute_tool_via_mcp(tool_name: str, args: dict | None = None) -> dict
                 json={"tool": tool_name, "arguments": args or {}},
             )
             if resp.status_code == 200:
-                return resp.json()
-            return {"status": "error", "tool": tool_name, "summary": f"MCP HTTP {resp.status_code}"}
+                result = resp.json()
+                # Never treat error results as cacheable success
+                return result
+            return {
+                "status": "error",
+                "tool": tool_name,
+                "summary": f"MCP HTTP {resp.status_code}",
+                "cacheable": False,
+            }
     except Exception as exc:
-        return {"status": "error", "tool": tool_name, "summary": str(exc)[:100]}
+        return {
+            "status": "error",
+            "tool": tool_name,
+            "summary": str(exc)[:100],
+            "cacheable": False,
+        }
 
 
 async def get_formatted_tool_list() -> str:
