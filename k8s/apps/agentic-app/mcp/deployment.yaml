@@ -21,7 +21,7 @@ spec:
         role: app-worker
       containers:
         - name: mcp-server
-          image: ghcr.io/achi-456/agentic-mcp:0c493f02487d27a8d23085adb56c17a9d5235376
+          image: ghcr.io/achi-456/agentic-mcp:4ce98b001b5b53658e0076b6f4633535a40c3f50
           ports:
             - containerPort: 8001
               name: http
