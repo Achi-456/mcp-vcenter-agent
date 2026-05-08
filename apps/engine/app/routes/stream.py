@@ -121,9 +121,7 @@ async def stream_agent(request: StreamRequest) -> StreamingResponse:
                         suggested_next = node_output.get("suggested_next")
 
                         if answer_source == "llm":
-                            provider = state.get("provider", "unknown")
-                            model = state.get("model", "unknown")
-                            yield _sse("llm_start", {"provider": provider, "model": model})
+                            yield _sse("llm_start", {"provider": request.provider, "model": request.model})
 
                         if answer_source == "fallback":
                             yield _sse("fallback_used", {"reason": "LLM_NOT_CONFIGURED"})
