@@ -5,7 +5,8 @@ import re
 import httpx
 import structlog
 
-from app.tools.mcp_client import execute_tool_via_mcp, get_formatted_tool_list
+from app.tools.mcp_client import get_formatted_tool_list
+from app.tools.registry import execute_tool
 from app.graph.state import AgentState
 from app.llm.provider_factory import factory as llm_factory
 from app.prompts.vcenter_admin import SYSTEM_PROMPT, build_user_prompt
@@ -194,13 +195,24 @@ async def execute_tools_node(state: AgentState) -> dict[str, object]:
 
     for tool_name in tools_to_run:
         args = {}
-        if tool_name == "get_vm_details" and entity:
-            args = {"name": entity}
-        elif tool_name == "get_host_details" and entity:
-            args = {"name": entity}
+        if tool_name in ("get_vm_details", "get_host_details") and entity:
+            args["name"] = entity
         elif tool_name == "search_inventory_object" and entity:
-            args = {"q": entity}
-        result = await execute_tool_via_mcp(tool_name, args)
+            args["q"] = entity
+        result = await execute_tool(tool_name, args)
+        # Build summary field for downstream
+        if result.get("ok"):
+            data_count = len(result.get("items", [])) if "items" in result else (1 if result.get("data") else 0)
+            result["summary"] = f"Found {data_count} result(s) for {tool_name}."
+        else:
+            result["summary"] = result.get("message", f"Tool {tool_name} failed.")
+            result["status"] = "error"
+        if result.get("cached"):
+            result["status"] = "cache_hit"
+        elif result.get("ok"):
+            result["status"] = "success"
+        else:
+            result["status"] = "error"
         results.append(result)
 
     return {"tool_results": results, "status": "streaming"}

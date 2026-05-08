@@ -83,12 +83,37 @@ async def stream_agent(request: StreamRequest) -> StreamingResponse:
                     if node_name == "execute_tools":
                         tool_results = node_output.get("tool_results", [])
                         for tr in tool_results:
-                            yield _sse("tool_result", {
-                                "tool": tr.get("tool", "unknown"),
-                                "status": tr.get("status", "error"),
-                                "summary": tr.get("summary", ""),
-                                "data_count": _get_data_count(tr.get("data", {})),
-                            })
+                            status = tr.get("status", "error")
+                            tool_name = tr.get("tool", "unknown")
+
+                            if status == "cache_hit":
+                                yield _sse("tool_cache_hit", {
+                                    "tool": tool_name,
+                                })
+                                yield _sse("tool_result", {
+                                    "tool": tool_name,
+                                    "status": "success",
+                                    "summary": tr.get("summary", ""),
+                                    "cached": True,
+                                })
+                            elif status == "error":
+                                yield _sse("tool_error", {
+                                    "tool": tool_name,
+                                    "error_code": tr.get("error_code", "UNKNOWN"),
+                                    "message": tr.get("message", tr.get("summary", "")),
+                                })
+                                yield _sse("tool_result", {
+                                    "tool": tool_name,
+                                    "status": "error",
+                                    "summary": tr.get("summary", ""),
+                                })
+                            else:
+                                yield _sse("tool_result", {
+                                    "tool": tool_name,
+                                    "status": status,
+                                    "summary": tr.get("summary", ""),
+                                    "data_count": _get_data_count(tr.get("data", {})),
+                                })
 
                     if node_name == "generate_llm_answer":
                         answer_source = node_output.get("answer_source", "")

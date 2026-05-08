@@ -1,23 +1,16 @@
 from fastapi import APIRouter
 
-import os
-import httpx
+from app.tools.registry import list_tools, get_enabled_tools
 
 router = APIRouter()
 
-MCP_SERVER_URL = os.getenv(
-    "MCP_SERVER_URL",
-    "http://mcp-server.agentic-app.svc.cluster.local:8001",
-)
-
 
 @router.get("/tools")
-async def list_tools():
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(f"{MCP_SERVER_URL}/tools")
-            if resp.status_code == 200:
-                return resp.json()
-    except Exception:
-        pass
-    return {"tools": [], "categories": []}
+async def list_all_tools():
+    all_tools = list_tools(include_disabled=True)
+    enabled_tools = get_enabled_tools()
+    return {
+        "tools": [t.spec.model_dump() for t in all_tools],
+        "enabled": [t.spec.name for t in enabled_tools],
+        "categories": sorted(set(t.spec.category.value for t in all_tools)),
+    }
