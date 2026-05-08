@@ -12,11 +12,15 @@ import {
   Settings,
   Activity,
   Bot,
+  LayoutDashboard,
+  BarChart3,
 } from "lucide-react"
 
 const navItems = [
+  { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/chat", label: "Chat", icon: MessageSquare },
   { href: "/inventory", label: "Inventory", icon: Server },
+  { href: "/monitoring", label: "Monitoring", icon: BarChart3 },
   { href: "/sessions", label: "Sessions", icon: History },
   { href: "/settings", label: "Settings", icon: Settings },
   { href: "/health", label: "System Health", icon: Activity },

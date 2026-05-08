@@ -5,6 +5,9 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from app.api.routes.agent import router as agent_router
 from app.api.routes.connections import router as connections_router
 from app.api.routes.inventory import router as inventory_router
+from app.api.routes.monitoring import router as monitoring_router
+from app.api.routes.context import router as context_router
+from app.api.routes.llm import router as llm_router
 from app.db.check import check_dependencies
 
 app = FastAPI(title="vCenter Agentic Ops API")
@@ -20,6 +23,9 @@ app.add_middleware(
 app.include_router(agent_router)
 app.include_router(connections_router)
 app.include_router(inventory_router)
+app.include_router(monitoring_router)
+app.include_router(context_router)
+app.include_router(llm_router)
 
 
 @app.get("/health")

@@ -1,8 +1,13 @@
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+
 from pyVim.connect import SmartConnect, Disconnect
 from pyVmomi import vim
 
 from app.services.k8s_secret_store import get_secret, VCENTER_SECRET_NAME
 from app.core.inventory_errors import error_response
+
+_executor = ThreadPoolExecutor(max_workers=3)
 
 
 def get_vcenter_credentials() -> dict | None:
@@ -58,3 +63,8 @@ def with_vcenter(fn):
         if "ssl" in msg or "certificate" in msg:
             return error_response("VCENTER_SSL_ERROR")
         return error_response("VCENTER_INVENTORY_ERROR")
+
+
+async def async_with_vcenter(fn):
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(_executor, with_vcenter, fn)
