@@ -1,51 +1,43 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import Link from "next/link"
-import { api, type InventoryOverview, type VM, type Datastore, type Alarm, type VMEvent } from "@/lib/api"
+import { useInventory } from "@/providers/inventory-provider"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
 import { AIAssistantPanel } from "@/components/chat/ai-assistant-panel"
 import {
   Monitor, Server, HardDrive, Bell, AlertTriangle,
-  Activity, Zap, BarChart3, Clock, Network, Cpu
+  Activity, Zap, BarChart3, Clock, Network, Cpu, RefreshCw
 } from "lucide-react"
 
+function SkeletonCard() {
+  return (
+    <Card className="border-border bg-card p-4 animate-pulse">
+      <div className="flex items-center gap-2">
+        <div className="h-7 w-7 rounded-lg bg-muted" />
+        <div className="h-3 w-20 bg-muted rounded" />
+      </div>
+      <div className="mt-2 h-7 w-16 bg-muted rounded" />
+      <div className="mt-1 h-3 w-24 bg-muted rounded" />
+    </Card>
+  )
+}
+
 export default function DashboardPage() {
-  const [overview, setOverview] = useState<InventoryOverview | null>(null)
-  const [vms, setVMs] = useState<VM[]>([])
-  const [datastores, setDatastores] = useState<Datastore[]>([])
-  const [alarms, setAlarms] = useState<Alarm[]>([])
-  const [events, setEvents] = useState<VMEvent[]>([])
-  const [loading, setLoading] = useState(true)
+  const { overview, vms, datastores, alarms, events, refreshAll } = useInventory()
   const [assistantOpen, setAssistantOpen] = useState(true)
 
-  useEffect(() => {
-    Promise.all([
-      api.getInventoryOverview(),
-      api.getVMs(),
-      api.getDatastores(),
-      api.getAlarms(),
-      api.getEvents(),
-    ]).then(([ov, vmData, dsData, alData, evData]) => {
-      setOverview(ov)
-      setVMs(vmData.items.slice(0, 5))
-      setDatastores(dsData.items)
-      setAlarms(alData.items.slice(0, 5))
-      setEvents(evData.items.slice(0, 10))
-    }).catch(() => {})
-    .finally(() => setLoading(false))
-  }, [])
-
-  const summaryCards = [
-    { label: "Total VMs", value: overview?.vms.total ?? "-", sub: `${overview?.vms.powered_on ?? 0} on · ${overview?.vms.powered_off ?? 0} off`, icon: Monitor, color: "text-emerald-400", bg: "bg-emerald-600/20" },
-    { label: "Powered On", value: overview?.vms.powered_on ?? "-", sub: overview?.vms.suspended ? `${overview.vms.suspended} suspended` : "", icon: Zap, color: "text-green-400", bg: "bg-green-600/20" },
-    { label: "ESXi Hosts", value: overview?.hosts.total ?? "-", sub: `${overview?.hosts.connected ?? 0} connected`, icon: Server, color: "text-cyan-400", bg: "bg-cyan-600/20" },
-    { label: "Active Alarms", value: overview?.alarms?.total ?? "-", sub: overview?.alarms ? `${overview.alarms.critical} critical` : "", icon: Bell, color: "text-red-400", bg: "bg-red-600/20" },
-    { label: "Datastore Used", value: overview?.datastores.used_percent ? `${overview.datastores.used_percent}%` : "-", sub: overview?.datastores.free_gb ? `${overview.datastores.free_gb.toFixed(0)} GB free` : "", icon: HardDrive, color: "text-amber-400", bg: "bg-amber-600/20" },
-  ]
+  const isLoading = overview.isInitialLoading
+  const isRefreshing = overview.isRefreshing
+  const ov = overview.data
+  const vmList = vms.data || []
+  const dsList = datastores.data || []
+  const alarmList = alarms.data || []
+  const eventList = events.data || []
 
   return (
     <div className={cn("space-y-6 transition-all", assistantOpen ? "mr-[380px]" : "")}>
@@ -55,28 +47,73 @@ export default function DashboardPage() {
           <p className="mt-1 text-xs text-muted-foreground">vCenter infrastructure overview</p>
         </div>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          {overview?.collected_at && (
-            <span>{new Date(overview.collected_at).toLocaleTimeString()}</span>
+          {ov?.collected_at && (
+            <span>Last updated: {new Date(ov.collected_at).toLocaleTimeString()}</span>
           )}
-          {overview?.cached && <Badge variant="secondary" className="text-[10px]">cached</Badge>}
+          {isRefreshing && <Badge variant="secondary" className="text-[10px]"><RefreshCw className="mr-1 h-2.5 w-2.5 animate-spin" />Refreshing</Badge>}
+          {ov?.cached && <Badge variant="secondary" className="text-[10px]">cached</Badge>}
+          <Button variant="outline" size="sm" onClick={refreshAll} disabled={isRefreshing}>
+            <RefreshCw className={cn("mr-1.5 h-3.5 w-3.5", isRefreshing && "animate-spin")} />Refresh
+          </Button>
         </div>
       </div>
 
       {/* Summary Cards */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-        {summaryCards.map(c => (
-          <Card key={c.label} className="border-border bg-card p-4 transition-colors hover:border-emerald-600/20">
-            <div className="flex items-center gap-2">
-              <div className={cn("flex h-7 w-7 items-center justify-center rounded-lg", c.bg)}>
-                <c.icon className={cn("h-3.5 w-3.5", c.color)} />
+        {isLoading ? (
+          <>{Array.from({ length: 5 }).map((_, i) => <SkeletonCard key={i} />)}</>
+        ) : (
+          <>
+            <Card className="border-border bg-card p-4 transition-colors hover:border-emerald-600/20">
+              <div className="flex items-center gap-2">
+                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-600/20"><Monitor className="h-3.5 w-3.5 text-emerald-400" /></div>
+                <span className="text-[11px] text-muted-foreground font-medium uppercase tracking-wider">Total VMs</span>
               </div>
-              <span className="text-[11px] text-muted-foreground font-medium uppercase tracking-wider">{c.label}</span>
-            </div>
-            <p className="mt-2 text-2xl font-semibold tracking-tight">{c.value}</p>
-            {c.sub && <p className="text-[11px] text-muted-foreground">{c.sub}</p>}
-          </Card>
-        ))}
+              <p className="mt-2 text-2xl font-semibold tracking-tight">{ov?.vms.total ?? 0}</p>
+              <p className="text-[11px] text-muted-foreground">{ov ? `${ov.vms.powered_on} on · ${ov.vms.powered_off} off` : ""}</p>
+            </Card>
+            <Card className="border-border bg-card p-4 transition-colors hover:border-emerald-600/20">
+              <div className="flex items-center gap-2">
+                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-green-600/20"><Zap className="h-3.5 w-3.5 text-green-400" /></div>
+                <span className="text-[11px] text-muted-foreground font-medium uppercase tracking-wider">Powered On</span>
+              </div>
+              <p className="mt-2 text-2xl font-semibold tracking-tight">{ov?.vms.powered_on ?? 0}</p>
+              <p className="text-[11px] text-muted-foreground">{ov?.vms.suspended ? `${ov.vms.suspended} suspended` : ""}</p>
+            </Card>
+            <Card className="border-border bg-card p-4 transition-colors hover:border-emerald-600/20">
+              <div className="flex items-center gap-2">
+                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-cyan-600/20"><Server className="h-3.5 w-3.5 text-cyan-400" /></div>
+                <span className="text-[11px] text-muted-foreground font-medium uppercase tracking-wider">ESXi Hosts</span>
+              </div>
+              <p className="mt-2 text-2xl font-semibold tracking-tight">{ov?.hosts.total ?? 0}</p>
+              <p className="text-[11px] text-muted-foreground">{ov ? `${ov.hosts.connected} connected` : ""}</p>
+            </Card>
+            <Card className="border-border bg-card p-4 transition-colors hover:border-emerald-600/20">
+              <div className="flex items-center gap-2">
+                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-red-600/20"><Bell className="h-3.5 w-3.5 text-red-400" /></div>
+                <span className="text-[11px] text-muted-foreground font-medium uppercase tracking-wider">Active Alarms</span>
+              </div>
+              <p className="mt-2 text-2xl font-semibold tracking-tight">{ov?.alarms?.total ?? 0}</p>
+              <p className="text-[11px] text-muted-foreground">{ov?.alarms ? `${ov.alarms.critical} critical` : ""}</p>
+            </Card>
+            <Card className="border-border bg-card p-4 transition-colors hover:border-emerald-600/20">
+              <div className="flex items-center gap-2">
+                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-600/20"><HardDrive className="h-3.5 w-3.5 text-amber-400" /></div>
+                <span className="text-[11px] text-muted-foreground font-medium uppercase tracking-wider">Datastore Used</span>
+              </div>
+              <p className="mt-2 text-2xl font-semibold tracking-tight">{ov ? `${ov.datastores.used_percent}%` : "0%"}</p>
+              <p className="text-[11px] text-muted-foreground">{ov ? `${ov.datastores.free_gb.toFixed(0)} GB free` : ""}</p>
+            </Card>
+          </>
+        )}
       </div>
+
+      {/* Error banner */}
+      {(overview.error || vms.error) && (
+        <Card className="border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400">
+          {overview.error || vms.error}
+        </Card>
+      )}
 
       {/* Panels */}
       <div className="grid gap-4 grid-cols-1 lg:grid-cols-2">
@@ -101,23 +138,17 @@ export default function DashboardPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {vms.map(vm => (
+                {vmList.slice(0, 5).map(vm => (
                   <TableRow key={vm.id}>
                     <TableCell className="text-xs font-medium font-mono-code">{vm.name}</TableCell>
-                    <TableCell>
-                      <Badge variant={vm.power_state === "poweredOn" ? "default" : "secondary"} className="text-[9px]">
-                        {vm.power_state}
-                      </Badge>
-                    </TableCell>
+                    <TableCell><Badge variant={vm.power_state === "poweredOn" ? "default" : "secondary"} className="text-[9px]">{vm.power_state}</Badge></TableCell>
                     <TableCell className="text-xs text-muted-foreground">{vm.cpu} vCPU</TableCell>
                     <TableCell className="text-xs text-muted-foreground">{vm.memory_gb} GB</TableCell>
                     <TableCell className="text-xs font-mono-code text-muted-foreground">{vm.ip_address || "-"}</TableCell>
                   </TableRow>
                 ))}
-                {vms.length === 0 && !loading && (
-                  <TableRow>
-                    <TableCell colSpan={5} className="text-xs text-muted-foreground text-center py-4">No VMs found</TableCell>
-                  </TableRow>
+                {vmList.length === 0 && !vms.isInitialLoading && (
+                  <TableRow><TableCell colSpan={5} className="text-xs text-muted-foreground text-center py-4">No VMs found</TableCell></TableRow>
                 )}
               </TableBody>
             </Table>
@@ -134,21 +165,16 @@ export default function DashboardPage() {
             <Link href="/inventory?tab=datastores" className="text-[11px] text-emerald-400 hover:underline">View All</Link>
           </div>
           <div className="px-4 py-3 space-y-3">
-            {datastores.map(ds => (
+            {dsList.map(ds => (
               <div key={ds.id} className="space-y-1">
                 <div className="flex justify-between text-xs">
                   <span className="font-mono-code text-muted-foreground">{ds.name}</span>
-                  <span className={cn(
-                    ds.used_percent > 85 ? "text-red-400" : ds.used_percent > 70 ? "text-amber-400" : "text-muted-foreground"
-                  )}>
+                  <span className={cn(ds.used_percent > 85 ? "text-red-400" : ds.used_percent > 70 ? "text-amber-400" : "text-muted-foreground")}>
                     {ds.free_gb.toFixed(0)} GB free / {ds.capacity_gb.toFixed(0)} GB
                   </span>
                 </div>
                 <div className="h-2 rounded-full bg-secondary overflow-hidden">
-                  <div
-                    className={cn("h-full rounded-full transition-all", ds.used_percent > 85 ? "bg-red-500" : ds.used_percent > 70 ? "bg-amber-500" : "bg-emerald-500")}
-                    style={{ width: `${Math.min(ds.used_percent, 100)}%` }}
-                  />
+                  <div className={cn("h-full rounded-full transition-all", ds.used_percent > 85 ? "bg-red-500" : ds.used_percent > 70 ? "bg-amber-500" : "bg-emerald-500")} style={{ width: `${Math.min(ds.used_percent, 100)}%` }} />
                 </div>
               </div>
             ))}
@@ -162,21 +188,18 @@ export default function DashboardPage() {
               <Bell className="h-3.5 w-3.5 text-red-400" />
               <h3 className="text-sm font-semibold">Active Alarms</h3>
             </div>
-            <Link href="/monitoring/alarms" className="text-[11px] text-emerald-400 hover:underline">View All</Link>
+            <Link href="/monitoring" className="text-[11px] text-emerald-400 hover:underline">View All</Link>
           </div>
           <div className="px-4 py-3 space-y-2">
-            {alarms.map(a => (
+            {alarmList.slice(0, 5).map(a => (
               <div key={a.id} className="flex items-center gap-2 text-xs">
-                <AlertTriangle className={cn(
-                  "h-3 w-3",
-                  a.severity === "critical" || a.severity === "red" ? "text-red-400" : "text-amber-400"
-                )} />
+                <AlertTriangle className={cn("h-3 w-3", a.severity === "critical" || a.severity === "red" ? "text-red-400" : "text-amber-400")} />
                 <span className="font-medium text-sidebar-foreground flex-1">{a.name}</span>
                 <span className="text-muted-foreground">{a.entity}</span>
                 <Badge variant="outline" className="text-[9px]">{a.severity}</Badge>
               </div>
             ))}
-            {alarms.length === 0 && (
+            {alarmList.length === 0 && !alarms.isInitialLoading && (
               <p className="text-xs text-muted-foreground text-center py-2">No active alarms</p>
             )}
           </div>
@@ -189,23 +212,19 @@ export default function DashboardPage() {
               <Activity className="h-3.5 w-3.5 text-blue-400" />
               <h3 className="text-sm font-semibold">Recent Events</h3>
             </div>
-            <Link href="/monitoring/events" className="text-[11px] text-emerald-400 hover:underline">View All</Link>
+            <Link href="/monitoring" className="text-[11px] text-emerald-400 hover:underline">View All</Link>
           </div>
           <div className="px-4 py-3 space-y-2 max-h-[200px] overflow-y-auto">
-            {events.map(e => (
+            {eventList.slice(0, 10).map(e => (
               <div key={e.id} className="flex items-start gap-2 text-xs">
-                <div className={cn("mt-0.5 h-1.5 w-1.5 rounded-full flex-shrink-0",
-                  e.severity === "error" ? "bg-red-500" : e.severity === "warning" ? "bg-amber-500" : "bg-blue-500"
-                )} />
+                <div className={cn("mt-0.5 h-1.5 w-1.5 rounded-full flex-shrink-0", e.severity === "error" ? "bg-red-500" : e.severity === "warning" ? "bg-amber-500" : "bg-blue-500")} />
                 <div className="min-w-0">
                   <p className="text-muted-foreground truncate">{e.message}</p>
-                  <p className="text-[10px] text-muted-foreground/60">
-                    {e.entity} · {e.created_at ? new Date(e.created_at).toLocaleString() : ""}
-                  </p>
+                  <p className="text-[10px] text-muted-foreground/60">{e.entity} · {e.created_at ? new Date(e.created_at).toLocaleString() : ""}</p>
                 </div>
               </div>
             ))}
-            {events.length === 0 && (
+            {eventList.length === 0 && !events.isInitialLoading && (
               <p className="text-xs text-muted-foreground text-center py-2">No recent events</p>
             )}
           </div>
@@ -230,7 +249,6 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      {/* AI Assistant Panel */}
       <AIAssistantPanel visible={assistantOpen} onToggle={() => setAssistantOpen(!assistantOpen)} />
     </div>
   )

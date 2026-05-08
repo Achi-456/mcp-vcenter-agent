@@ -17,7 +17,8 @@ export const api = {
   health: () => request<{ status: string }>("/health"),
 
   // Inventory
-  getInventoryOverview: () => request<InventoryOverview>("/api/v1/inventory/overview"),
+  getInventoryOverview: (refresh?: boolean) =>
+    request<InventoryOverview>("/api/v1/inventory/overview" + (refresh ? "?refresh=true" : "")),
   getVMs: (refresh?: boolean) =>
     request<InventoryList<VM>>("/api/v1/inventory/vms" + (refresh ? "?refresh=true" : "")),
   getHosts: (refresh?: boolean) =>
@@ -45,7 +46,7 @@ export const api = {
 
   // LLM
   getLLMProviders: () => request<{ providers: LLMProvider[] }>("/api/v1/llm/providers"),
-  getLLMModels: (provider: string) => request<{ models: LLMModel[] }>("/api/v1/llm/models?provider=" + provider),
+  getLLMModels: (provider: string) => request<LLMModelsResponse>("/api/v1/llm/models?provider=" + provider),
   getLLMStatus: () => request<LLMStatus>("/api/v1/llm/status"),
 
   // Sessions
@@ -185,6 +186,16 @@ export interface LLMProvider {
 }
 export interface LLMModel {
   id: string; name: string
+}
+export interface LLMModelsResponse {
+  provider?: string
+  connected?: boolean
+  models?: LLMModel[]
+  default_model?: string
+  error_code?: string
+  message?: string
+  source?: string
+  cached?: boolean
 }
 export interface LLMStatus {
   configured: boolean; provider: string | null; model: string | null; ready: boolean
