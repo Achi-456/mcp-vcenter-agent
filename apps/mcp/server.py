@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from app.tools.registry import (
-    get_tool, get_enabled_tools, get_all_tools, format_tool_list, ToolDef, TOOLS
+    get_tool, get_enabled_tools, format_tool_list, ToolDef, TOOLS
 )
 
 app = FastAPI(title="vCenter MCP Server")
@@ -41,12 +41,12 @@ async def health():
 @app.get("/tools")
 async def list_tools(category: str | None = None, enabled_only: bool = False):
     """List all registered tools, optionally filtered by category."""
-    tools = get_enabled_tools() if enabled_only else get_all_tools()
+    tools = get_enabled_tools() if enabled_only else TOOLS
     if category:
         tools = [t for t in tools if t.category == category]
     return {
         "tools": [t.to_dict() for t in tools],
-        "categories": sorted(set(t.category for t in get_all_tools())),
+        "categories": sorted(set(t.category for t in TOOLS)),
         "tool_list_formatted": format_tool_list(),
     }
 
