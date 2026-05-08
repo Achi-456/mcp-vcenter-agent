@@ -79,11 +79,46 @@ async def vm_details(name: str = Query(..., min_length=1)):
         lower = name.lower()
         matches = [v for v in vms if lower in v["name"].lower()]
         if not matches:
-            return {"vms": [], "count": 0, "error": f"VM '{name}' not found."}
-        # Exact match first, then partial
+            return {
+                "vms": [],
+                "count": 0,
+                "error_code": "VM_NOT_FOUND",
+                "ok": False,
+                "message": f"No VM named '{name}' was found.",
+            }
         exact = [v for v in matches if v["name"].lower() == lower]
         result = exact[0] if exact else matches[0]
         return {"vms": [result], "count": 1, "summary": f"Found {result['name']}, {result['power_state']}, host {result.get('host', 'N/A')}"}
+
+    result = with_vcenter(_fetch)
+    if isinstance(result, dict) and "error_code" in result:
+        return JSONResponse(result, status_code=409)
+
+    data = {**result, "source": "vcenter", "cached": False, "collected_at": _now()}
+    return JSONResponse(data)
+
+
+@router.get("/host-details")
+async def host_details(name: str = Query(..., min_length=1)):
+    def _fetch(si, content):
+        from app.services.vcenter_inventory_service import list_hosts
+        hosts = list_hosts(si, content)
+        lower = name.lower()
+        matches = [h for h in hosts if lower in h["name"].lower()]
+        if not matches:
+            available = ", ".join(h["name"] for h in hosts[:5])
+            return {
+                "hosts": [],
+                "count": 0,
+                "error": f"Host '{name}' not found. Available hosts: {available}",
+            }
+        exact = [h for h in matches if h["name"].lower() == lower]
+        result = exact[0] if exact else matches[0]
+        return {
+            "hosts": [result],
+            "count": 1,
+            "summary": f"Host {result['name']} — {result.get('connection_state', 'unknown')} — {result.get('vm_count', 0)} VMs — vSphere {result.get('version', 'unknown')}",
+        }
 
     result = with_vcenter(_fetch)
     if isinstance(result, dict) and "error_code" in result:

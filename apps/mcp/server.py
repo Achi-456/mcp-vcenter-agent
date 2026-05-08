@@ -96,7 +96,7 @@ async def _dispatch(tool_name: str, args: dict) -> dict:
         "get_vm_details": "/api/v1/context/vm-details",
         "get_vm_stats": "/api/v1/context/vm-details",
         "list_hosts": "/api/v1/inventory/hosts",
-        "get_host_details": "/api/v1/context/vm-details",
+        "get_host_details": "/api/v1/context/host-details",
         "get_vcenter_info": "/api/v1/inventory/overview",
         "list_datastores": "/api/v1/inventory/datastores",
         "list_networks": "/api/v1/inventory/networks",
@@ -108,7 +108,8 @@ async def _dispatch(tool_name: str, args: dict) -> dict:
         "get_powered_off_vms": "/api/v1/context/powered-off-vms",
         "get_datastore_health": "/api/v1/context/datastore-health",
         "get_rke2_vms": "/api/v1/context/rke2-vms",
-        "list_available_tools": "/tools",  # local
+        "connect_vcenter": "/api/v1/connections/vcenter/reconnect",
+        "list_available_tools": "/tools",
     }
 
     if tool.name == "list_available_tools":
@@ -126,13 +127,26 @@ async def _dispatch(tool_name: str, args: dict) -> dict:
     if not endpoint:
         return {"status": "error", "tool": tool.name, "summary": "No execution endpoint mapped."}
 
+    method_map: dict[str, str] = {
+        "connect_vcenter": "POST",
+    }
+
     try:
         url = f"{FASTAPI_INTERNAL}{endpoint}"
         params = {}
         if tool.name == "get_vm_details" and args.get("name"):
             params["name"] = args["name"]
+        elif tool.name == "get_host_details" and args.get("host_name"):
+            params["name"] = args["host_name"]
+        elif tool.name == "get_host_details" and args.get("name"):
+            params["name"] = args["name"]
+
+        http_method = method_map.get(tool.name, "GET")
         async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.get(url, params=params)
+            if http_method == "POST":
+                resp = await client.post(url, json=args)
+            else:
+                resp = await client.get(url, params=params)
             if resp.status_code == 200:
                 data = resp.json()
                 summary = data.get("summary", "")

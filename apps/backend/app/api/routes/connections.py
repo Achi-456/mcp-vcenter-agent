@@ -89,6 +89,21 @@ async def vcenter_status() -> JSONResponse:
     ).model_dump())
 
 
+@router.post("/vcenter/reconnect")
+async def vcenter_reconnect():
+    """Force a fresh vCenter session regardless of current state."""
+    from app.services.vcenter_client_factory import vcenter_session
+    err = vcenter_session.force_reconnect()
+    if err:
+        return JSONResponse(err, status_code=409)
+    status = vcenter_session.status()
+    return JSONResponse({
+        "ok": True,
+        "message": f"Connected to {status.get('host', 'vCenter')}",
+        "status": status,
+    })
+
+
 @router.delete("/vcenter")
 async def vcenter_delete() -> JSONResponse:
     delete_secret(VCENTER_SECRET_NAME)
