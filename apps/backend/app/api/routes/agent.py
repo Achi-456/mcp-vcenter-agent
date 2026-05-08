@@ -62,3 +62,34 @@ async def get_session(session_id: str) -> JSONResponse:
         payload = {"error": response.text}
 
     return JSONResponse(payload, status_code=response.status_code)
+
+
+@router.get("/health")
+async def agent_health():
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(f"{AGENT_ENGINE_URL}/health")
+            engine_status = resp.json()
+            return {
+                "status": "ok",
+                "engine": engine_status.get("status", "unknown"),
+                "checks": engine_status.get("checks", {}),
+            }
+    except Exception as exc:
+        return JSONResponse(
+            {"status": "degraded", "engine": "unreachable", "error": str(exc)},
+            status_code=503,
+        )
+
+
+@router.get("/tools")
+async def proxy_tools():
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(f"{AGENT_ENGINE_URL}/tools")
+            return resp.json()
+    except Exception as exc:
+        return JSONResponse(
+            {"tools": [], "error": str(exc)},
+            status_code=503,
+        )

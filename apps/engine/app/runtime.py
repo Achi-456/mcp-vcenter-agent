@@ -5,7 +5,7 @@ from typing import Any
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
 from app.cache import cache_ping, close_cache
-from app.graph.graph import build_graph
+from app.graph.workflow import build_graph
 from app.settings import get_settings
 
 

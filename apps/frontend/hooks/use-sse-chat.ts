@@ -3,11 +3,28 @@
 import { useCallback, useRef, useState } from "react"
 
 export interface SSEMessage {
-  type: "session" | "node" | "done" | "error"
+  type: "start" | "thought" | "tool_call" | "tool_result" | "token" | "final" | "blocked" | "error" | "done" | "session" | "node"
   session_id?: string
+  run_id?: string
+  content?: string
+  tool?: string
+  status?: string
+  args?: Record<string, unknown>
+  summary?: string
   node?: string
   output?: Record<string, unknown>
+  reason?: string
+  error_code?: string
   message?: string
+}
+
+export interface ChatStreamRequest {
+  message: string
+  session_id: string | null
+  provider: string
+  model: string
+  allow_high_risk: boolean
+  page_context?: Record<string, unknown>
 }
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "https://api.dclab.local"
@@ -19,7 +36,7 @@ export function useSSEChat() {
 
   const send = useCallback(
     async (
-      message: string,
+      request: ChatStreamRequest,
       onEvent: (event: SSEMessage) => void,
       onError: (error: string) => void,
     ) => {
@@ -28,10 +45,17 @@ export function useSSEChat() {
       abortRef.current = controller
 
       try {
-        const res = await fetch(`${BASE_URL}/api/v1/chat`, {
+        const res = await fetch(`${BASE_URL}/api/v1/chat/stream`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
-          body: JSON.stringify({ session_id: sessionId, message }),
+          body: JSON.stringify({
+            message: request.message,
+            session_id: request.session_id || sessionId,
+            provider: request.provider || "gemini",
+            model: request.model || "gemini-2.5-flash",
+            allow_high_risk: request.allow_high_risk || false,
+            page_context: request.page_context,
+          }),
           signal: controller.signal,
         })
 
@@ -53,11 +77,11 @@ export function useSSEChat() {
             if (line.startsWith("data: ")) {
               try {
                 const evt = JSON.parse(line.slice(6)) as SSEMessage
-                if (evt.type === "session" && evt.session_id) {
-                  setSessionId(evt.session_id)
+                if (evt.type === "session" || evt.type === "start") {
+                  if (evt.session_id) setSessionId(evt.session_id)
                 }
                 onEvent(evt)
-              } catch { /* skip */ }
+              } catch { /* skip malformed JSON */ }
             }
           }
         }

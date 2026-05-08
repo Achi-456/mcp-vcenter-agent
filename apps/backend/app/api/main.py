@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.api.routes.agent import router as agent_router
+from app.api.routes.chat import router as chat_router
 from app.api.routes.connections import router as connections_router
 from app.api.routes.inventory import router as inventory_router
 from app.api.routes.monitoring import router as monitoring_router
@@ -21,6 +22,7 @@ app.add_middleware(
 )
 
 app.include_router(agent_router)
+app.include_router(chat_router)
 app.include_router(connections_router)
 app.include_router(inventory_router)
 app.include_router(monitoring_router)

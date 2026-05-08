@@ -28,7 +28,7 @@ export default function ChatPage() {
     setMessages((prev) => [...prev, { role: "user", content: text }, { role: "agent", content: "", nodes: [] }])
 
     send(
-      text,
+      { message: text, session_id: sessionId, provider: "gemini", model: "gemini-2.5-flash", allow_high_risk: false },
       (evt: SSEMessage) => {
         setMessages((prev) => {
           const updated = [...prev]
@@ -39,6 +39,10 @@ export default function ChatPage() {
             if (evt.output?.final_answer) last.content = String(evt.output.final_answer)
             if (evt.output?.plan) last.plan = evt.output.plan as Message["plan"]
           }
+          if (evt.type === "start") { /* session started */ }
+          if (evt.type === "tool_call") { last.nodes!.push(`tool:${evt.tool}`) }
+          if (evt.type === "tool_result") { last.nodes!.push(`result:${evt.tool}`) }
+          if (evt.type === "final") { last.content = evt.content || last.content }
           if (evt.type === "error") last.error = evt.message
           updated[updated.length - 1] = last
           return updated
