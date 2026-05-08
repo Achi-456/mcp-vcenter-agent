@@ -30,6 +30,18 @@ app.include_router(context_router)
 app.include_router(llm_router)
 
 
+@app.get("/api/v1/tools")
+async def tools_proxy():
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(f"http://mcp-server.agentic-app.svc.cluster.local:8001/tools")
+            return resp.json()
+    except Exception:
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"tools": [], "error": "MCP server unreachable"}, status_code=503)
+
+
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}

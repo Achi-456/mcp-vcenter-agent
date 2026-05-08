@@ -61,7 +61,6 @@ async def get_tool_info(name: str):
 
 @app.post("/execute")
 async def execute_tool(request: ExecuteRequest):
-    """Execute a read-only tool via the FastAPI backend."""
     tool = get_tool(request.tool)
     if not tool:
         raise HTTPException(status_code=404, detail=f"Tool '{request.tool}' not found")
@@ -70,7 +69,16 @@ async def execute_tool(request: ExecuteRequest):
             status_code=403,
             detail=f"Tool '{request.tool}' is not available in Phase {tool.phase}. Risk: {tool.risk_level}.",
         )
-    return await _dispatch(tool, request.arguments or {})
+
+    if request.tool == "list_available_tools":
+        return {
+            "status": "success",
+            "tool": request.tool,
+            "data": {"formatted": format_tool_list()},
+            "summary": "Tool list generated.",
+        }
+
+    return await _dispatch(request.tool, request.arguments or {})
 
 
 async def _dispatch(tool: ToolDef, args: dict) -> dict:
