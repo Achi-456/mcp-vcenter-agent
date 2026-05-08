@@ -1,26 +1,10 @@
 "use client"
 
 import { useCallback, useRef, useState } from "react"
+import type { ChatEvent, ChatStatus } from "@/lib/chat-events"
+import { parseSSELine } from "@/lib/chat-events"
 
-export interface SSEMessage {
-  type: "start" | "intent" | "safety_check" | "thought" | "tool_call" | "tool_result" | "token" | "final" | "suggested_next_step" | "blocked" | "error" | "done" | "session" | "node"
-  session_id?: string
-  run_id?: string
-  content?: string
-  tool?: string
-  status?: string
-  args?: Record<string, unknown>
-  summary?: string
-  data_count?: number
-  intent?: string
-  entity?: string | null
-  passed?: boolean
-  node?: string
-  output?: Record<string, unknown>
-  reason?: string
-  error_code?: string
-  message?: string
-}
+export type { ChatEvent, ChatStatus }
 
 export interface ChatStreamRequest {
   message: string
@@ -36,15 +20,20 @@ const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "https://api.dclab.loca
 export function useSSEChat() {
   const [isStreaming, setIsStreaming] = useState(false)
   const [sessionId, setSessionId] = useState<string | null>(null)
+  const [currentRunId, setCurrentRunId] = useState<string | null>(null)
+  const [status, setStatus] = useState<ChatStatus>("ready")
+  const [error, setError] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
   const send = useCallback(
     async (
       request: ChatStreamRequest,
-      onEvent: (event: SSEMessage) => void,
+      onEvent: (event: ChatEvent) => void,
       onError: (error: string) => void,
     ) => {
       setIsStreaming(true)
+      setStatus("thinking")
+      setError(null)
       const controller = new AbortController()
       abortRef.current = controller
 
@@ -78,19 +67,34 @@ export function useSSEChat() {
           const lines = buffer.split("\n")
           buffer = lines.pop() || ""
           for (const line of lines) {
-            if (line.startsWith("data: ")) {
-              try {
-                const evt = JSON.parse(line.slice(6)) as SSEMessage
-                if (evt.type === "session" || evt.type === "start") {
-                  if (evt.session_id) setSessionId(evt.session_id)
-                }
-                onEvent(evt)
-              } catch { /* skip malformed JSON */ }
+            const trimmed = line.trim()
+
+            // Skip empty lines and event: lines (we parse from data: only)
+            if (!trimmed || trimmed.startsWith("event:") || trimmed.startsWith(":")) continue
+
+            const evt = parseSSELine(trimmed)
+            if (!evt) continue
+
+            // Update internal state based on event
+            if (evt.type === "start" || evt.type === "session") {
+              if (evt.session_id) setSessionId(evt.session_id)
+              if ("run_id" in evt && evt.run_id) setCurrentRunId(evt.run_id)
+              setStatus("thinking")
             }
+            if (evt.type === "intent") setStatus("planning")
+            if (evt.type === "tool_call") setStatus("running_tool")
+            if (evt.type === "llm_start" || evt.type === "token") setStatus("streaming")
+            if (evt.type === "blocked") setStatus("blocked")
+            if (evt.type === "error") setStatus("error")
+            if (evt.type === "done") setStatus("ready")
+
+            onEvent(evt)
           }
         }
       } catch (err: unknown) {
         if (err instanceof Error && err.name !== "AbortError") {
+          setError(err.message)
+          setStatus("error")
           onError(err.message)
         }
       } finally {
@@ -102,11 +106,15 @@ export function useSSEChat() {
 
   const stop = useCallback(() => {
     abortRef.current?.abort()
+    setStatus("ready")
   }, [])
 
   const newSession = useCallback(() => {
     setSessionId(null)
+    setCurrentRunId(null)
+    setStatus("ready")
+    setError(null)
   }, [])
 
-  return { send, stop, newSession, isStreaming, sessionId }
+  return { send, stop, newSession, isStreaming, sessionId, currentRunId, status, error }
 }
