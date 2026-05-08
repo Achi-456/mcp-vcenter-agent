@@ -1,22 +1,23 @@
 from fastapi import APIRouter
 
-from app.tools.registry import get_all_tools
+import os
+import httpx
 
 router = APIRouter()
+
+MCP_SERVER_URL = os.getenv(
+    "MCP_SERVER_URL",
+    "http://mcp-server.agentic-app.svc.cluster.local:8001",
+)
 
 
 @router.get("/tools")
 async def list_tools():
-    tools = get_all_tools()
-    return {
-        "tools": [
-            {
-                "name": t.name,
-                "category": t.category,
-                "risk": t.risk,
-                "description": t.description,
-                "requires_approval": t.requires_approval,
-            }
-            for t in tools
-        ]
-    }
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(f"{MCP_SERVER_URL}/tools")
+            if resp.status_code == 200:
+                return resp.json()
+    except Exception:
+        pass
+    return {"tools": [], "categories": []}

@@ -86,7 +86,7 @@ async def agent_health():
 async def proxy_tools():
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(f"{AGENT_ENGINE_URL}/tools")
+            resp = await client.get(f"http://mcp-server.agentic-app.svc.cluster.local:8001/tools")
             return resp.json()
     except Exception as exc:
         return JSONResponse(

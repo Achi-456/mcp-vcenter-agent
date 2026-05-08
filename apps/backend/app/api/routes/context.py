@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 
 from app.services.vcenter_client_factory import with_vcenter
@@ -11,6 +11,7 @@ from app.services.vcenter_inventory_service import (
     context_active_alarms,
     context_recent_events,
     context_rke2_vms,
+    list_vms,
 )
 from app.services.inventory_cache_service import get_cache, set_cache
 from app.core.inventory_errors import error_response
@@ -69,3 +70,24 @@ async def recent_events():
 @router.get("/rke2-vms")
 async def rke2_vms():
     return await _fetch_and_cache("context:rke2-vms", context_rke2_vms, ttl=30)()
+
+
+@router.get("/vm-details")
+async def vm_details(name: str = Query(..., min_length=1)):
+    def _fetch(si, content):
+        vms = list_vms(si, content)
+        lower = name.lower()
+        matches = [v for v in vms if lower in v["name"].lower()]
+        if not matches:
+            return {"vms": [], "count": 0, "error": f"VM '{name}' not found."}
+        # Exact match first, then partial
+        exact = [v for v in matches if v["name"].lower() == lower]
+        result = exact[0] if exact else matches[0]
+        return {"vms": [result], "count": 1, "summary": f"Found {result['name']}, {result['power_state']}, host {result.get('host', 'N/A')}"}
+
+    result = with_vcenter(_fetch)
+    if isinstance(result, dict) and "error_code" in result:
+        return JSONResponse(result, status_code=409)
+
+    data = {**result, "source": "vcenter", "cached": False, "collected_at": _now()}
+    return JSONResponse(data)

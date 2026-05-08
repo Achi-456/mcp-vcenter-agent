@@ -1,10 +1,110 @@
 import json
-import asyncio
+import re
 
 import httpx
 
-from app.tools.registry import get_all_tools, FASTAPI_INTERNAL
+from app.tools.mcp_client import execute_tool_via_mcp, get_formatted_tool_list
 from app.graph.state import AgentState
+
+# ── Intent classification ───────────────────────────────────────────────────
+
+
+def _classify_intent(message: str) -> tuple[str, str | None]:
+    """Classify user prompt into an intent. Returns (intent, extracted_entity)."""
+    lower = message.lower().strip()
+
+    # Extract potential VM name from patterns like "inspect X", "show X details"
+    vm_name = None
+    for pattern in [r"inspect\s+(\S+)", r"show\s+(\S+)\s+details?", r"what host is\s+(\S+)",
+                    r"details?\s+(?:of|for|on)\s+(\S+)", r"info\s+(?:of|for|on)\s+(\S+)",
+                    r"what\s+is\s+the\s+ip\s+of\s+(\S+)", r"datastore\s+of\s+(\S+)"]:
+        m = re.search(pattern, lower)
+        if m:
+            vm_name = m.group(1)
+            break
+
+    # Typo-tolerant risky action detection (before tool routing)
+    risky_patterns = [
+        r"\b(?:trun|turn|power|start|boot)\s+(?:on\s+)?(?:\S+\s+)?(?:vm|on)\b",
+        r"\b(?:turn|power|shut)\s+(?:off|down)\b",
+        r"\b(?:reboot|restart|reset)\b",
+        r"\b(?:delete|destroy|remove)\s+(?:vm|snapshot)\b",
+        r"\b(?:migrate|vmotion)\b",
+        r"\bmaintenance\s+mode\b",
+        r"\bsnapshot\s+(?:delete|revert|remove)\b",
+        r"\bcreate\s+(?:vm|snapshot)\b",
+    ]
+    for pattern in risky_patterns:
+        if re.search(pattern, lower):
+            return ("risky_operation", vm_name)
+
+    # Specific intents
+    if any(w in lower for w in ["list tool", "show tool", "available tool", "what tool", "list down all the tool"]):
+        return ("list_tools", None)
+
+    if any(w in lower for w in ["environment", "overview", "summary of", "status of vcenter"]):
+        return ("environment_overview", None)
+
+    if vm_name:
+        return ("get_vm_details", vm_name)
+
+    if any(w in lower for w in ["powered off", "not powered on", "power off vm", "which vms are off"]):
+        return ("get_powered_off_vms", None)
+
+    if any(w in lower for w in ["datastore health", "above 90", "critical datastore", "disk usage",
+                                  "storage health", "datastore usage"]):
+        return ("datastore_health", None)
+
+    if any(w in lower for w in ["alarm", "active alarm", "triggered alarm", "alert"]):
+        return ("active_alarms", None)
+
+    if any(w in lower for w in ["recent event", "event log", "task", "show event"]):
+        return ("recent_events", None)
+
+    if any(w in lower for w in ["rke2", "kubernetes", "k8s", "cluster vm", "agentic"]):
+        return ("rke2_vms", None)
+
+    if any(w in lower for w in ["host", "esxi"]):
+        return ("list_hosts", None)
+
+    if any(w in lower for w in ["datastore", "storage"]):
+        return ("list_datastores", None)
+
+    if any(w in lower for w in ["network", "port group"]):
+        return ("list_networks", None)
+
+    if any(w in lower for w in ["cluster"]):
+        return ("list_clusters", None)
+
+    if any(w in lower for w in ["vm", "virtual machine"]):
+        return ("list_vms", None)
+
+    # Fallback: environment overview
+    return ("environment_overview", None)
+
+
+def _intent_to_tools(intent: str) -> list[str]:
+    """Map an intent to the primary tool(s) to execute."""
+    mapping: dict[str, list[str]] = {
+        "list_tools": ["list_available_tools"],
+        "environment_overview": ["get_environment_overview"],
+        "list_vms": ["list_vms"],
+        "list_hosts": ["list_hosts"],
+        "list_datastores": ["list_datastores"],
+        "list_networks": ["list_networks"],
+        "list_clusters": ["list_clusters"],
+        "get_vm_details": ["get_vm_details"],
+        "get_host_details": ["get_host_details"],
+        "datastore_health": ["get_datastore_health"],
+        "active_alarms": ["get_active_alarms"],
+        "recent_events": ["get_recent_events"],
+        "rke2_vms": ["get_rke2_vms"],
+        "get_powered_off_vms": ["get_powered_off_vms"],
+    }
+    return mapping.get(intent, ["get_environment_overview"])
+
+
+# ── Graph nodes ──────────────────────────────────────────────────────────────
 
 
 async def load_session_node(state: AgentState) -> dict[str, object]:
@@ -14,114 +114,157 @@ async def load_session_node(state: AgentState) -> dict[str, object]:
     }
 
 
-async def safety_check_node(state: AgentState) -> dict[str, object]:
-    from app.safety.classifier import classify_safety
+async def classify_request_node(state: AgentState) -> dict[str, object]:
+    message = state["user_message"]
+    intent, entity = _classify_intent(message)
+    tools = _intent_to_tools(intent)
 
-    verdict = classify_safety(state["user_message"])
-    if verdict["blocked"]:
+    if intent == "risky_operation":
         return {
-            "safety_verdict": verdict,
             "status": "blocked",
+            "safety_verdict": {
+                "blocked": True,
+                "risk": "approval_required",
+                "reason": "HIGH_RISK_ACTION",
+                "message": (
+                    "This is a high-risk vCenter action and is disabled in Phase 1.4. "
+                    "Power operations, deletions, snapshots, migrations, and maintenance mode "
+                    "changes require approval gates planned for a future phase. "
+                    "I can inspect VMs and show their current state if you'd like."
+                ),
+            },
         }
+
     return {
-        "safety_verdict": verdict,
+        "intent": intent,
+        "entity": entity,
+        "selected_tools": tools,
         "status": "running_tool",
     }
 
 
+async def safety_check_node(state: AgentState) -> dict[str, object]:
+    # Safety is now handled in classify_request_node
+    # This node validates and adds context-specific safety
+    intent = state.get("intent", "")
+    if intent == "risky_operation":
+        return {"status": "blocked"}
+    return {"status": state.get("status", "running_tool")}
+
+
 async def select_tools_node(state: AgentState) -> dict[str, object]:
-    user_message = state["user_message"].lower()
-    tools = get_all_tools()
-    selected: list[str] = []
-
-    tool_keywords = {
-        "get_environment_overview": ["environment", "overview", "summary", "status of vcenter"],
-        "list_vms": ["list vm", "show vm", "virtual machine", "all vm"],
-        "list_hosts": ["list host", "show host", "esxi"],
-        "list_clusters": ["cluster", "show cluster"],
-        "list_datastores": ["datastore", "show datastore", "storage"],
-        "list_networks": ["network", "port group", "show network"],
-        "get_powered_off_vms": ["powered off", "power off vm", "not powered on"],
-        "get_datastore_health": ["datastore health", "critical datastore", "above 90", "disk usage"],
-        "get_active_alarms": ["alarm", "active alarm", "triggered alarm"],
-        "get_recent_events": ["recent event", "event log", "show event"],
-        "get_rke2_vms": ["rke2", "kubernetes", "cluster vm", "k8s"],
-    }
-
-    for tool in tools:
-        if tool.risk != "read_only":
-            continue
-        for keyword in tool_keywords.get(tool.name, []):
-            if keyword in user_message:
-                if tool.name not in selected:
-                    selected.append(tool.name)
-                break
-
-    if not selected:
-        selected = ["get_environment_overview"]
-
-    return {"selected_tools": selected}
+    return {"selected_tools": state.get("selected_tools", ["get_environment_overview"])}
 
 
 async def execute_tools_node(state: AgentState) -> dict[str, object]:
     tools_to_run = state.get("selected_tools", ["get_environment_overview"])
+    entity = state.get("entity")
     results: list[dict] = []
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        for tool_name in tools_to_run:
-            from app.tools.registry import get_tool
-            tool = get_tool(tool_name)
-            if not tool:
-                results.append({"tool": tool_name, "status": "error", "summary": "Tool not found"})
-                continue
-            try:
-                resp = await client.get(tool.api_endpoint)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    summary = data.get("summary", "") or str(data.get("count", ""))
-                    results.append({"tool": tool_name, "status": "success", "data": data, "summary": summary})
-                else:
-                    results.append({"tool": tool_name, "status": "error", "summary": f"HTTP {resp.status_code}"})
-            except Exception as exc:
-                results.append({"tool": tool_name, "status": "error", "summary": str(exc)[:100]})
+    for tool_name in tools_to_run:
+        args = {}
+        if tool_name == "get_vm_details" and entity:
+            args = {"name": entity}
+        result = await execute_tool_via_mcp(tool_name, args)
+        results.append(result)
 
     return {"tool_results": results, "status": "streaming"}
 
 
 async def generate_answer_node(state: AgentState) -> dict[str, object]:
     tool_results = state.get("tool_results", [])
-    user_message = state["user_message"]
+    intent = state.get("intent", "")
+    entity = state.get("entity")
+    message = state["user_message"]
 
-    parts = [f"Answering: {user_message}\n"]
+    # ── Tool list answer ────────────────────────────────────────────────
+    if intent == "list_tools":
+        formatted = await get_formatted_tool_list()
+        return {"final_answer": formatted, "status": "done", "suggested_next": None}
+
+    # ── VM details answer ───────────────────────────────────────────────
+    if intent == "get_vm_details" and tool_results:
+        tr = tool_results[0]
+        if tr.get("status") == "success":
+            data = tr.get("data", {})
+            vm_info = ""
+            if "vms" in data and data["vms"]:
+                vm = data["vms"][0]
+                vm_info = _format_vm_details(vm, entity)
+            elif isinstance(data, dict):
+                vm_info = _format_vm_details(data, entity)
+
+            if vm_info:
+                suggested = (
+                    "I can also check recent events, snapshots, datastore usage, or "
+                    "active alarms related to this VM."
+                )
+                return {"final_answer": vm_info, "status": "done", "suggested_next": suggested}
+            return {"final_answer": f"I found information for **{entity}** but could not format the details.", "status": "done", "suggested_next": None}
+        return {"final_answer": f"I could not find VM **{entity}** in the vCenter inventory. Check the VM name and try again.", "status": "done", "suggested_next": None}
+
+    # ── Generic answer from tool results ─────────────────────────────────
+    parts = [f"Here is what I found regarding your query:\n"]
     for tr in tool_results:
-        tool_name = tr.get("tool", "unknown")
-        status = tr.get("status", "error")
         summary = tr.get("summary", "")
         data = tr.get("data", {})
 
-        parts.append(f"\nTool: {tool_name} ({status})")
+        if summary:
+            parts.append(summary)
 
-        if status == "success" and data:
-            if "vms" in data and isinstance(data["vms"], list):
-                parts.append(f"  Found {len(data['vms'])} VMs")
-                for vm in data["vms"][:5]:
-                    parts.append(f"  - {vm.get('name', '?')} [{vm.get('power_state', '?')}]")
-            elif "items" in data:
-                parts.append(f"  Found {data.get('count', len(data['items']))} items")
-            elif "overview" in data:
+        if data and isinstance(data, dict):
+            if "overview" in data:
                 ov = data["overview"]
                 vms = ov.get("vms", {})
                 hosts = ov.get("hosts", {})
                 ds = ov.get("datastores", {})
-                parts.append(f"  VMs: {vms.get('total', 0)} total, {vms.get('powered_on', 0)} on, {vms.get('powered_off', 0)} off")
-                parts.append(f"  Hosts: {hosts.get('total', 0)} total, {hosts.get('connected', 0)} connected")
-                parts.append(f"  Datastores: {ds.get('total', 0)} total, {ds.get('used_percent', 0)}% used")
-            if summary:
-                parts.append(f"  {summary}")
+                alarms = ov.get("alarms", {})
+                parts.append(f"\n- **VMs**: {vms.get('total', 0)} total ({vms.get('powered_on', 0)} on, {vms.get('powered_off', 0)} off)")
+                parts.append(f"- **Hosts**: {hosts.get('total', 0)} total ({hosts.get('connected', 0)} connected)")
+                parts.append(f"- **Datastores**: {ds.get('total', 0)} total ({ds.get('used_percent', 0)}% used)")
+                if alarms:
+                    parts.append(f"- **Alarms**: {alarms.get('total', 0)} total ({alarms.get('critical', 0)} critical)")
 
     final = "\n".join(parts)
-    return {"final_answer": final, "status": "done"}
+
+    # Suggested next step
+    suggested = _get_suggested_next(intent, entity)
+
+    return {"final_answer": final, "status": "done", "suggested_next": suggested}
 
 
 async def save_session_node(state: AgentState) -> dict[str, object]:
     return {}
+
+
+# ── Formatting helpers ──────────────────────────────────────────────────────
+
+
+def _format_vm_details(vm: dict, name: str | None = None) -> str:
+    lines = [
+        f"I found **{name or vm.get('name', '?')}**. No action was taken.\n",
+        f"| Property | Value |",
+        f"|----------|-------|",
+        f"| **Power State** | {vm.get('power_state', 'unknown')} |",
+        f"| **Host** | {vm.get('host', 'N/A')} |",
+        f"| **IP Address** | {vm.get('ip_address', 'N/A')} |",
+        f"| **Datastore** | {vm.get('datastore', 'N/A')} |",
+        f"| **Guest OS** | {vm.get('guest_os', 'N/A')} |",
+        f"| **CPU** | {vm.get('cpu', 0)} vCPU |",
+        f"| **Memory** | {vm.get('memory_gb', 0)} GB |",
+        f"| **VMware Tools** | {vm.get('tools_status', 'unknown')} |",
+    ]
+    return "\n".join(lines)
+
+
+def _get_suggested_next(intent: str, entity: str | None) -> str | None:
+    suggestions: dict[str, str] = {
+        "environment_overview": "I can drill down into powered-off VMs, datastore health, active alarms, or recent events.",
+        "list_vms": "I can inspect any specific VM, check powered-off VMs, or show RKE2 cluster VMs.",
+        "get_vm_details": f"I can check recent events, datastore usage, active alarms, or snapshots for this VM.",
+        "datastore_health": "I can show the full datastore list, check powered-off VMs, or review active alarms.",
+        "active_alarms": "I can drill into specific alarms, check recent events, or get an environment overview.",
+        "recent_events": "I can check active alarms, datastore health, or inspect any VM.",
+        "rke2_vms": "I can inspect individual RKE2 VMs, check datastore health, or review active alarms.",
+    }
+    return suggestions.get(intent)

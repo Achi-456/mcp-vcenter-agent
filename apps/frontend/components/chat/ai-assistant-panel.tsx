@@ -12,23 +12,28 @@ import { Switch } from "@/components/ui/switch"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   Bot, X, ChevronRight, Zap, Server, HardDrive, Bell, Clock,
-  Monitor, RefreshCw, CheckCircle2, AlertTriangle, XCircle, Shield, Wrench
+  Monitor, RefreshCw, CheckCircle2, AlertTriangle, XCircle, Shield, Wrench,
+  Lightbulb, Search
 } from "lucide-react"
+import ReactMarkdown from "react-markdown"
 
 interface Message {
   role: "user" | "assistant" | "blocked" | "tool"
   content: string
   toolName?: string
   toolResult?: string
+  isMarkdown?: boolean
 }
 
 interface ToolTraceEntry {
   name: string
   status: "running" | "success" | "error"
   summary?: string
+  dataCount?: number
 }
 
 const PROMPT_SHORTCUTS = [
+  { id: "tools", label: "List Tools", icon: Wrench, prompt: "list down all the tools you have" },
   { id: "environment", label: "Environment", icon: Monitor, prompt: "Give me an environment overview of my vCenter infrastructure." },
   { id: "powered-off", label: "Powered-off VMs", icon: Zap, prompt: "Show me all powered-off VMs in my vCenter environment." },
   { id: "datastore", label: "Datastore Health", icon: HardDrive, prompt: "Analyze datastore health and highlight any critical datastores above 90% usage." },
@@ -37,7 +42,7 @@ const PROMPT_SHORTCUTS = [
   { id: "rke2", label: "RKE2 VMs", icon: Server, prompt: "Show me all RKE2 cluster VMs." },
 ]
 
-type Status = "Ready" | "Thinking" | "Running tool" | "Streaming" | "Blocked" | "Error"
+type Status = "Ready" | "Thinking" | "Classifying" | "Running tool" | "Streaming" | "Blocked" | "Error"
 
 export function AIAssistantPanel({ visible, onToggle }: { visible: boolean; onToggle: () => void }) {
   const [providers, setProviders] = useState<LLMProvider[]>([])
@@ -50,7 +55,7 @@ export function AIAssistantPanel({ visible, onToggle }: { visible: boolean; onTo
   const [highRisk, setHighRisk] = useState(false)
   const [status, setStatus] = useState<Status>("Ready")
   const [toolTrace, setToolTrace] = useState<ToolTraceEntry[]>([])
-  const [thinkingText, setThinkingText] = useState("")
+  const [suggestedNext, setSuggestedNext] = useState<string | null>(null)
 
   const { send, stop, isStreaming, sessionId, newSession } = useSSEChat()
 
@@ -70,6 +75,7 @@ export function AIAssistantPanel({ visible, onToggle }: { visible: boolean; onTo
   const handleShortcut = useCallback((prompt: string) => {
     setMessages(prev => [...prev, { role: "user", content: prompt }])
     setToolTrace([])
+    setSuggestedNext(null)
     const tempTrace: ToolTraceEntry[] = []
 
     send(
@@ -79,55 +85,41 @@ export function AIAssistantPanel({ visible, onToggle }: { visible: boolean; onTo
           case "start":
             setStatus("Thinking")
             break
-          case "thought":
-            setThinkingText(evt.content || "")
+          case "intent":
+            setStatus("Classifying")
             break
-          case "tool_call":
+          case "safety_check":
+            break
+          case "tool_call": {
             setStatus("Running tool")
             const name = evt.tool || "unknown"
             tempTrace.push({ name, status: "running" })
             setToolTrace([...tempTrace])
-            setMessages(prev => [...prev, { role: "tool", content: "", toolName: name, toolResult: "running..." }])
             break
-          case "tool_result":
+          }
+          case "tool_result": {
             const idx = tempTrace.findIndex(t => t.name === evt.tool && t.status === "running")
             if (idx >= 0) {
-              tempTrace[idx] = { ...tempTrace[idx], status: evt.status === "success" ? "success" : "error", summary: evt.summary }
+              tempTrace[idx] = {
+                ...tempTrace[idx],
+                status: evt.status === "success" ? "success" : "error",
+                summary: evt.summary || "",
+                dataCount: evt.data_count,
+              }
             }
             setToolTrace([...tempTrace])
-            setMessages(prev => {
-              const updated = [...prev]
-              const lastTool = updated.reverse().find(m => m.role === "tool" && m.toolName === evt.tool && m.toolResult === "running...")
-              if (lastTool) {
-                lastTool.toolResult = (evt.status === "success" ? "Done: " : "Failed: ") + (evt.summary || "")
-              }
-              return updated.reverse()
-            })
             break
-          case "token":
-            setStatus("Streaming")
-            setMessages(prev => {
-              const updated = [...prev]
-              const last = updated[updated.length - 1]
-              if (last && last.role === "assistant") {
-                last.content += (evt.content || "")
-              } else {
-                updated.push({ role: "assistant", content: evt.content || "" })
-              }
-              return updated
-            })
-            break
+          }
           case "final":
-            setMessages(prev => {
-              const updated = [...prev]
-              const last = updated[updated.length - 1]
-              if (last && last.role === "assistant") {
-                last.content = evt.content || last.content
-              } else if (evt.content) {
-                updated.push({ role: "assistant", content: evt.content })
-              }
-              return updated
-            })
+            setStatus("Ready")
+            setMessages(prev => [...prev, {
+              role: "assistant",
+              content: evt.content || "",
+              isMarkdown: true,
+            }])
+            break
+          case "suggested_next_step":
+            setSuggestedNext(evt.content || null)
             break
           case "blocked":
             setStatus("Blocked")
@@ -142,7 +134,6 @@ export function AIAssistantPanel({ visible, onToggle }: { visible: boolean; onTo
             break
           case "done":
             setStatus("Ready")
-            setThinkingText("")
             break
         }
       },
@@ -173,7 +164,7 @@ export function AIAssistantPanel({ visible, onToggle }: { visible: boolean; onTo
   }
 
   return (
-    <div className="fixed right-0 top-0 z-40 flex h-screen w-[380px] flex-col border-l border-border bg-sidebar shadow-2xl">
+    <div className="fixed right-0 top-0 z-40 flex h-screen w-[400px] flex-col border-l border-border bg-sidebar shadow-2xl">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-sidebar-border px-5 py-3">
         <div className="flex items-center gap-2">
@@ -251,6 +242,7 @@ export function AIAssistantPanel({ visible, onToggle }: { visible: boolean; onTo
             <div>
               <Bot className="mx-auto h-6 w-6 text-muted-foreground/40 mb-2" />
               <p className="text-xs text-muted-foreground">Select a quick action or ask about your vCenter.</p>
+              <p className="text-[11px] text-muted-foreground/60 mt-1">Try: &quot;list down all the tools you have&quot;</p>
             </div>
           </div>
         )}
@@ -268,51 +260,86 @@ export function AIAssistantPanel({ visible, onToggle }: { visible: boolean; onTo
               </Card>
             )}
             {m.role === "blocked" && (
-              <Card className="border-red-500/20 bg-red-500/5 px-3 py-2 text-xs text-red-400 flex items-center gap-1.5">
-                <AlertTriangle className="h-3 w-3" />
-                {m.content}
+              <Card className="border-red-500/20 bg-red-500/5 px-3 py-2 text-xs flex items-start gap-2">
+                <AlertTriangle className="h-3.5 w-3.5 text-red-400 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="text-red-400 font-medium">Action Blocked</p>
+                  <p className="text-muted-foreground mt-0.5">{m.content}</p>
+                </div>
               </Card>
             )}
             {m.content && m.role !== "tool" && (
               <Card className={cn(
-                "px-3 py-2 text-xs max-w-[85%]",
+                "px-3 py-2 text-xs max-w-[90%]",
                 m.role === "user"
                   ? "border-emerald-600/30 bg-emerald-600/10 text-emerald-50"
-                  : m.role === "blocked"
-                  ? "border-red-500/30 bg-red-500/10 text-red-400"
                   : "border-border bg-card text-sidebar-foreground"
               )}>
-                <p className="whitespace-pre-wrap break-words">{m.content}{isStreaming && i === messages.length - 1 && m.role === "assistant" && <span className="animate-pulse">|</span>}</p>
+                {m.isMarkdown ? (
+                  <div className="prose prose-xs prose-invert max-w-none [&_table]:w-full [&_table]:text-[11px] [&_th]:text-left [&_th]:p-1 [&_td]:p-1 [&_h2]:text-sm [&_h2]:mt-2 [&_h2]:mb-1 [&_ul]:my-1 [&_li]:text-[11px] [&_hr]:my-2">
+                    <ReactMarkdown>{m.content}</ReactMarkdown>
+                  </div>
+                ) : (
+                  <p className="whitespace-pre-wrap break-words">{m.content}</p>
+                )}
               </Card>
             )}
           </div>
         ))}
 
-        {thinkingText && status === "Thinking" && (
-          <Card className="border-border bg-card px-3 py-2 text-xs text-muted-foreground italic">
-            {thinkingText}
-          </Card>
+        {isStreaming && status !== "Ready" && (
+          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <RefreshCw className="h-3 w-3 animate-spin" />
+            {status === "Thinking" && "Thinking..."}
+            {status === "Classifying" && "Classifying request..."}
+            {status === "Running tool" && "Running tools..."}
+          </div>
         )}
       </div>
 
       {/* Tool Trace */}
       {toolTrace.length > 0 && (
-        <div className="border-t border-sidebar-border px-5 py-3 max-h-[120px] overflow-y-auto">
+        <div className="border-t border-sidebar-border px-5 py-3 max-h-[140px] overflow-y-auto">
           <p className="text-[11px] font-medium text-muted-foreground mb-2 uppercase tracking-wider">Tool Trace</p>
           <div className="space-y-1.5">
             {toolTrace.map((t, i) => (
-              <div key={i} className="flex items-center gap-1.5 text-[11px]">
-                {t.status === "running" && <RefreshCw className="h-3 w-3 animate-spin text-amber-400" />}
-                {t.status === "success" && <CheckCircle2 className="h-3 w-3 text-emerald-400" />}
-                {t.status === "error" && <XCircle className="h-3 w-3 text-red-400" />}
-                <span className="font-mono-code text-muted-foreground">{t.name}</span>
-                <span className="text-muted-foreground/60">
-                  {t.status === "running" ? "running" : t.status === "success" ? "done" : "failed"}
-                </span>
-                {t.summary && <span className="text-muted-foreground/40 truncate block">{t.summary}</span>}
+              <div key={i} className="flex items-start gap-1.5 text-[11px]">
+                {t.status === "running" && <RefreshCw className="h-3 w-3 animate-spin text-amber-400 mt-0.5" />}
+                {t.status === "success" && <CheckCircle2 className="h-3 w-3 text-emerald-400 mt-0.5" />}
+                {t.status === "error" && <XCircle className="h-3 w-3 text-red-400 mt-0.5" />}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1">
+                    <span className="font-mono-code text-muted-foreground">{t.name}</span>
+                    <span className={cn("text-[10px]",
+                      t.status === "success" ? "text-emerald-400" :
+                      t.status === "error" ? "text-red-400" : "text-amber-400"
+                    )}>
+                      {t.status === "running" ? "running" : t.status === "success" ? "success" : "failed"}
+                    </span>
+                    {t.dataCount && (
+                      <Badge variant="secondary" className="text-[9px]">{t.dataCount} items</Badge>
+                    )}
+                  </div>
+                  {t.summary && (
+                    <p className="text-muted-foreground/60 truncate">{t.summary}</p>
+                  )}
+                </div>
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Suggested Next Step */}
+      {suggestedNext && status === "Ready" && (
+        <div className="border-t border-sidebar-border px-5 py-2">
+          <Card className="border-cyan-500/20 bg-cyan-500/5 px-3 py-2 text-[11px]">
+            <div className="flex items-center gap-1.5 mb-1">
+              <Lightbulb className="h-3 w-3 text-cyan-400" />
+              <span className="text-cyan-400 font-medium">Suggested next step</span>
+            </div>
+            <p className="text-muted-foreground">{suggestedNext}</p>
+          </Card>
         </div>
       )}
 
@@ -322,7 +349,7 @@ export function AIAssistantPanel({ visible, onToggle }: { visible: boolean; onTo
           <Switch checked={highRisk} onCheckedChange={setHighRisk} id="high-risk-switch" />
           <label htmlFor="high-risk-switch" className={cn("text-[11px] cursor-pointer select-none", highRisk ? "text-red-400 font-medium" : "text-muted-foreground")}>
             <Shield className="inline h-3 w-3 mr-1" />
-            High-Risk Actions
+            High-Risk Actions (blocked in Phase 1.4)
           </label>
         </div>
         <div className="flex gap-2">

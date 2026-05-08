@@ -1,8 +1,135 @@
-from fastapi import FastAPI
+import os
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+
+from app.tools.registry import (
+    get_tool, get_enabled_tools, get_all_tools, format_tool_list, ToolDef, TOOLS
+)
 
 app = FastAPI(title="vCenter MCP Server")
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+class ExecuteRequest(BaseModel):
+    tool: str
+    arguments: dict | None = None
+
+
+# ── Endpoints ────────────────────────────────────────────────────────────────
+
 
 @app.get("/health")
-async def health() -> dict[str, object]:
-    return {"status": "ok", "tools": [], "resources": [], "prompts": []}
+async def health():
+    enabled = get_enabled_tools()
+    return {
+        "status": "ok",
+        "tools": len(TOOLS),
+        "enabled": len(enabled),
+        "resources": [],
+        "prompts": [],
+    }
+
+
+@app.get("/tools")
+async def list_tools(category: str | None = None, enabled_only: bool = False):
+    """List all registered tools, optionally filtered by category."""
+    tools = get_enabled_tools() if enabled_only else get_all_tools()
+    if category:
+        tools = [t for t in tools if t.category == category]
+    return {
+        "tools": [t.to_dict() for t in tools],
+        "categories": sorted(set(t.category for t in get_all_tools())),
+        "tool_list_formatted": format_tool_list(),
+    }
+
+
+@app.get("/tools/{name}")
+async def get_tool_info(name: str):
+    tool = get_tool(name)
+    if not tool:
+        raise HTTPException(status_code=404, detail=f"Tool '{name}' not found")
+    return tool.to_dict()
+
+
+@app.post("/execute")
+async def execute_tool(request: ExecuteRequest):
+    """Execute a read-only tool via the FastAPI backend."""
+    tool = get_tool(request.tool)
+    if not tool:
+        raise HTTPException(status_code=404, detail=f"Tool '{request.tool}' not found")
+    if not tool.enabled or not tool.implemented:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Tool '{request.tool}' is not available in Phase {tool.phase}. Risk: {tool.risk_level}.",
+        )
+    return await _dispatch(tool, request.arguments or {})
+
+
+async def _dispatch(tool: ToolDef, args: dict) -> dict:
+    """Route execution to the FastAPI backend which has vCenter connectivity."""
+    import httpx
+
+    FASTAPI_INTERNAL = os.getenv(
+        "FASTAPI_INTERNAL_URL",
+        "http://fastapi.agentic-app.svc.cluster.local:8000",
+    )
+
+    endpoint_map: dict[str, str] = {
+        "list_vms": "/api/v1/inventory/vms",
+        "get_vm_details": "/api/v1/context/vm-details",
+        "get_vm_stats": "/api/v1/context/vm-details",
+        "list_hosts": "/api/v1/inventory/hosts",
+        "get_host_details": "/api/v1/context/vm-details",
+        "get_vcenter_info": "/api/v1/inventory/overview",
+        "list_datastores": "/api/v1/inventory/datastores",
+        "list_networks": "/api/v1/inventory/networks",
+        "list_clusters": "/api/v1/inventory/clusters",
+        "list_snapshots": "/api/v1/context/vm-details",
+        "get_active_alarms": "/api/v1/context/active-alarms",
+        "get_recent_events": "/api/v1/context/recent-events",
+        "get_environment_overview": "/api/v1/context/environment",
+        "get_powered_off_vms": "/api/v1/context/powered-off-vms",
+        "get_datastore_health": "/api/v1/context/datastore-health",
+        "get_rke2_vms": "/api/v1/context/rke2-vms",
+        "list_available_tools": "/tools",  # local
+    }
+
+    if tool.name == "list_available_tools":
+        return {
+            "status": "success",
+            "tool": tool.name,
+            "data": {"formatted": format_tool_list()},
+            "summary": "Tool list generated.",
+        }
+
+    endpoint = endpoint_map.get(tool.name)
+    if not endpoint:
+        return {"status": "error", "tool": tool.name, "summary": "No execution endpoint mapped."}
+
+    try:
+        url = f"{FASTAPI_INTERNAL}{endpoint}"
+        params = {}
+        if tool.name == "get_vm_details" and args.get("name"):
+            params["name"] = args["name"]
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(url, params=params)
+            if resp.status_code == 200:
+                data = resp.json()
+                summary = data.get("summary", "")
+                return {
+                    "status": "success",
+                    "tool": tool.name,
+                    "data": data,
+                    "summary": summary or f"Returned data for {tool.name}.",
+                }
+            return {"status": "error", "tool": tool.name, "summary": f"HTTP {resp.status_code}"}
+    except Exception as exc:
+        return {"status": "error", "tool": tool.name, "summary": str(exc)[:100]}

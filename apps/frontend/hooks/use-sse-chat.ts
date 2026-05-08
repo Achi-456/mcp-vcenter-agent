@@ -3,7 +3,7 @@
 import { useCallback, useRef, useState } from "react"
 
 export interface SSEMessage {
-  type: "start" | "thought" | "tool_call" | "tool_result" | "token" | "final" | "blocked" | "error" | "done" | "session" | "node"
+  type: "start" | "intent" | "safety_check" | "thought" | "tool_call" | "tool_result" | "token" | "final" | "suggested_next_step" | "blocked" | "error" | "done" | "session" | "node"
   session_id?: string
   run_id?: string
   content?: string
@@ -11,6 +11,10 @@ export interface SSEMessage {
   status?: string
   args?: Record<string, unknown>
   summary?: string
+  data_count?: number
+  intent?: string
+  entity?: string | null
+  passed?: boolean
   node?: string
   output?: Record<string, unknown>
   reason?: string
