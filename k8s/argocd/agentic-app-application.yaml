@@ -1,0 +1,23 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: agentic-app
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Achi-456/mcp-vcenter-agent.git
+    targetRevision: main-rke2-mcp
+    path: k8s/apps/agentic-app
+    directory:
+      recurse: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: agentic-app
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ApplyOutOfSyncOnly=true

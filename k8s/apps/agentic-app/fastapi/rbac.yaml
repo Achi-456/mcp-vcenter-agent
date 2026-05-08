@@ -1,0 +1,29 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: agentic-api-secret-manager
+  namespace: agentic-app
+  labels:
+    app.kubernetes.io/name: agentic-ops
+    app.kubernetes.io/component: api
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: agentic-api-secret-manager
+  namespace: agentic-app
+  labels:
+    app.kubernetes.io/name: agentic-ops
+    app.kubernetes.io/component: api
+subjects:
+  - kind: ServiceAccount
+    name: agentic-api
+    namespace: agentic-app
+roleRef:
+  kind: Role
+  name: agentic-api-secret-manager
+  apiGroup: rbac.authorization.k8s.io

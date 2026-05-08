@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-server
+  namespace: agentic-app
+spec:
+  selector:
+    app: mcp-server
+  ports:
+    - port: 8001
+      targetPort: 8001
+      name: http
+  type: ClusterIP

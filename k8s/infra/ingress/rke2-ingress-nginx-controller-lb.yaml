@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: rke2-ingress-nginx-controller-lb
+  namespace: kube-system
+  annotations:
+    metallb.io/loadBalancerIPs: 172.25.188.84
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  selector:
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/instance: rke2-ingress-nginx
+    app.kubernetes.io/name: rke2-ingress-nginx
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+    - name: https
+      port: 443
+      targetPort: https
+      protocol: TCP
