@@ -76,9 +76,9 @@ export function useSSEChat() {
             if (!evt) continue
 
             // Update internal state based on event
-            if (evt.type === "start" || evt.type === "session") {
+            if (evt.type === "start") {
               if (evt.session_id) setSessionId(evt.session_id)
-              if ("run_id" in evt && evt.run_id) setCurrentRunId(evt.run_id)
+              if (evt.run_id) setCurrentRunId(evt.run_id)
               setStatus("thinking")
             }
             if (evt.type === "intent") setStatus("planning")

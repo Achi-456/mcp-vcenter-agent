@@ -288,29 +288,34 @@ export function AIAssistantPanel({ visible, onToggle }: { visible: boolean; onTo
                       if (t.status === "running" && event?.type === "tool_call") {
                         return <ToolCallCard key={i} tool={t.name} args={t.args} status="running" />
                       }
-                      if ((t.status === "success" || t.status === "error") && event && "type" in event) {
-                        const evt = event
-                        if (evt.type === "tool_result" && "status" in evt) {
+                      if ((t.status === "success" || t.status === "error") && event) {
+                        const et = event.type
+
+                        const isErrorTool = et === "tool_error"
+                        const isToolResult = et === "tool_result"
+                        const isCacheHit = et === "tool_cache_hit"
+
+                        if (isToolResult && "status" in event) {
                           return (
                             <ToolResultCard
                               key={i}
                               tool={t.name}
-                              status={evt.status as "success" | "error"}
+                              status={event.status as "success" | "error"}
                               summary={t.summary}
                               data_count={t.dataCount}
-                              cached={evt.type === "tool_cache_hit" || "cached" in evt ? Boolean((evt as Record<string, unknown>).cached) : undefined}
+                              cached={isCacheHit || ("cached" in event ? Boolean((event as unknown as Record<string, unknown>).cached) : undefined)}
                             />
                           )
                         }
-                        if (evt.type === "tool_error" && "error_code" in evt) {
+                        if (isErrorTool && "error_code" in event) {
                           return (
                             <ToolResultCard
                               key={i}
                               tool={t.name}
                               status="error"
                               summary={t.summary}
-                              error_code={evt.error_code}
-                              message={evt.message}
+                              error_code={event.error_code}
+                              message={event.message}
                             />
                           )
                         }

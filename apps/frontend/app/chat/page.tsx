@@ -1,7 +1,8 @@
 "use client"
 
 import { useState } from "react"
-import { useSSEChat, type SSEMessage } from "@/hooks/use-sse-chat"
+import { useSSEChat } from "@/hooks/use-sse-chat"
+import type { ChatEvent } from "@/lib/chat-events"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
@@ -29,20 +30,17 @@ export default function ChatPage() {
 
     send(
       { message: text, session_id: sessionId, provider: "gemini", model: "gemini-2.5-flash", allow_high_risk: false },
-      (evt: SSEMessage) => {
+      (evt: ChatEvent) => {
         setMessages((prev) => {
           const updated = [...prev]
           const last = { ...updated[updated.length - 1] }
           last.nodes = [...(last.nodes || [])]
-          if (evt.type === "node") {
-            if (evt.node) last.nodes!.push(evt.node)
-            if (evt.output?.final_answer) last.content = String(evt.output.final_answer)
-            if (evt.output?.plan) last.plan = evt.output.plan as Message["plan"]
-          }
           if (evt.type === "start") { /* session started */ }
+          if (evt.type === "intent") { last.nodes!.push(`intent:${evt.intent}`) }
           if (evt.type === "tool_call") { last.nodes!.push(`tool:${evt.tool}`) }
           if (evt.type === "tool_result") { last.nodes!.push(`result:${evt.tool}`) }
           if (evt.type === "final") { last.content = evt.content || last.content }
+          if (evt.type === "blocked") { last.error = evt.message }
           if (evt.type === "error") last.error = evt.message
           updated[updated.length - 1] = last
           return updated
