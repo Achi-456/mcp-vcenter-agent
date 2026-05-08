@@ -73,10 +73,9 @@ def _classify_intent(message: str) -> tuple[str, str | None]:
     if any(w in lower for w in ["cluster"]):
         return ("list_clusters", None)
 
-    # ── Entity-based routing (host vs VM detection) ──────────────────────
+    # ── Entity-based routing (must come before keyword routing) ─────────
 
     def _is_host_like(name: str) -> bool:
-        """Heuristic: check if a name looks like an ESXi host, not a VM."""
         lower_n = name.lower()
         if re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", lower_n):
             return True
@@ -92,11 +91,39 @@ def _classify_intent(message: str) -> tuple[str, str | None]:
             return ("get_host_details", entity)
         return ("get_vm_details", entity)
 
-    # Keyword-based routing (no entity extracted)
-    if any(w in lower for w in ["host details", "esxi details", "show host", "host info"]):
-        return ("list_hosts", None)
+    # Keyword-based routing (only when no entity was extracted)
+    if any(w in lower for w in ["list tool", "show tool", "available tool", "what tool", "list down all the tool"]):
+        return ("list_tools", None)
 
-    if any(w in lower for w in ["host", "esxi"]):
+    if any(w in lower for w in ["environment", "overview", "summary of", "status of vcenter"]):
+        return ("environment_overview", None)
+
+    if any(w in lower for w in ["powered off", "not powered on", "power off vm", "which vms are off"]):
+        return ("get_powered_off_vms", None)
+
+    if any(w in lower for w in ["datastore health", "above 90", "critical datastore", "disk usage",
+                                  "storage health", "datastore usage"]):
+        return ("datastore_health", None)
+
+    if any(w in lower for w in ["alarm", "active alarm", "triggered alarm", "alert"]):
+        return ("active_alarms", None)
+
+    if any(w in lower for w in ["recent event", "event log", "task", "show event"]):
+        return ("recent_events", None)
+
+    if any(w in lower for w in ["rke2", "kubernetes", "k8s", "cluster vm", "agentic"]):
+        return ("rke2_vms", None)
+
+    if any(w in lower for w in ["datastore", "storage"]):
+        return ("list_datastores", None)
+
+    if any(w in lower for w in ["network", "port group"]):
+        return ("list_networks", None)
+
+    if any(w in lower for w in ["cluster"]):
+        return ("list_clusters", None)
+
+    if any(w in lower for w in ["host details", "esxi details", "show host", "host info", "host", "esxi"]):
         return ("list_hosts", None)
 
     if any(w in lower for w in ["vm", "virtual machine"]):
