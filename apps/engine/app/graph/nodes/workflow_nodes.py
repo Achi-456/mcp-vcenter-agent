@@ -25,14 +25,15 @@ def _classify_intent(message: str) -> tuple[str, str | None]:
 
     # Typo-tolerant risky action detection (before tool routing)
     risky_patterns = [
-        r"\b(?:trun|turn|power|start|boot)\s+(?:on\s+)?(?:\S+\s+)?(?:vm|on)\b",
-        r"\b(?:turn|power|shut)\s+(?:off|down)\b",
+        r"\b(?:trun|tunr|turn|power|start|boot)\b.*\b(?:on|up)\b",
+        r"\b(?:turn|power|shut)\b.*\b(?:off|down)\b",
         r"\b(?:reboot|restart|reset)\b",
-        r"\b(?:delete|destroy|remove)\s+(?:vm|snapshot)\b",
+        r"\b(?:delete|destroy|remove)\b.*\b(?:vm|snapshot)\b",
         r"\b(?:migrate|vmotion)\b",
         r"\bmaintenance\s+mode\b",
         r"\bsnapshot\s+(?:delete|revert|remove)\b",
         r"\bcreate\s+(?:vm|snapshot)\b",
+        r"\brevert\b.*\bsnapshot\b",
     ]
     for pattern in risky_patterns:
         if re.search(pattern, lower):

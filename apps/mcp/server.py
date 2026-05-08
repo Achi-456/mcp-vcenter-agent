@@ -81,8 +81,9 @@ async def execute_tool(request: ExecuteRequest):
     return await _dispatch(request.tool, request.arguments or {})
 
 
-async def _dispatch(tool: ToolDef, args: dict) -> dict:
-    """Route execution to the FastAPI backend which has vCenter connectivity."""
+async def _dispatch(tool_name: str, args: dict) -> dict:
+    tool = get_tool(tool_name)
+
     import httpx
 
     FASTAPI_INTERNAL = os.getenv(
@@ -117,6 +118,9 @@ async def _dispatch(tool: ToolDef, args: dict) -> dict:
             "data": {"formatted": format_tool_list()},
             "summary": "Tool list generated.",
         }
+
+    if not tool:
+        return {"status": "error", "tool": tool_name, "summary": "Tool not found in registry."}
 
     endpoint = endpoint_map.get(tool.name)
     if not endpoint:
