@@ -114,6 +114,9 @@ def _classify_intent(message: str) -> tuple[str, str | None]:
     if any(w in lower for w in ["rke2", "kubernetes", "k8s", "cluster vm", "agentic"]):
         return ("rke2_vms", None)
 
+    if any(w in lower for w in ["search inventory", "find in inventory", "search for"]):
+        return ("search_inventory", None)
+
     if any(w in lower for w in ["datastore", "storage"]):
         return ("list_datastores", None)
 
@@ -150,6 +153,7 @@ def _intent_to_tools(intent: str) -> list[str]:
         "recent_events": ["get_recent_events"],
         "rke2_vms": ["get_rke2_vms"],
         "get_powered_off_vms": ["get_powered_off_vms"],
+        "search_inventory": ["search_inventory_object"],
     }
     return mapping.get(intent, ["get_environment_overview"])
 
@@ -218,6 +222,8 @@ async def execute_tools_node(state: AgentState) -> dict[str, object]:
             args = {"name": entity}
         elif tool_name == "get_host_details" and entity:
             args = {"name": entity}
+        elif tool_name == "search_inventory_object" and entity:
+            args = {"q": entity}
         result = await execute_tool_via_mcp(tool_name, args)
         results.append(result)
 
@@ -228,39 +234,59 @@ async def generate_answer_node(state: AgentState) -> dict[str, object]:
     tool_results = state.get("tool_results", [])
     intent = state.get("intent", "")
     entity = state.get("entity")
-    message = state["user_message"]
 
     if intent == "list_tools":
         formatted = await get_formatted_tool_list()
         return {"final_answer": formatted, "status": "done", "suggested_next": None}
 
-    if intent == "get_vm_details" and tool_results:
+    if intent in ("get_vm_details", "get_host_details") and tool_results:
         tr = tool_results[0]
-        if tr.get("status") == "success":
-            data = tr.get("data", {})
-            vm_info = ""
-            if "vms" in data and data["vms"]:
-                vm = data["vms"][0]
-                vm_info = _format_vm_details(vm, entity)
-            elif isinstance(data, dict):
-                vm_info = _format_vm_details(data, entity)
-            if vm_info:
-                suggested = "I can also check recent events, snapshots, datastore usage, or active alarms related to this VM."
-                return {"final_answer": vm_info, "status": "done", "suggested_next": suggested}
-            return {"final_answer": f"I found information for **{entity}** but could not format the details.", "status": "done", "suggested_next": None}
-        return {"final_answer": f"I could not find VM **{entity}** in the vCenter inventory. Check the VM name and try again.", "status": "done", "suggested_next": None}
 
-    # ── Host details answer ──────────────────────────────────────────────
-    if intent == "get_host_details" and tool_results:
-        tr = tool_results[0]
+        # Handle error responses with suggested_tool
+        error_code = tr.get("error_code")
+        if error_code == "WRONG_OBJECT_TYPE":
+            suggested = tr.get("suggested_tool")
+            msg = tr.get("summary", "")
+            return {"final_answer": f"**{entity}** looks like an ESXi host, not a VM.\n\n{msg}\n\nI will use the host details tool instead." if not suggested else f"**{entity}** looks like an ESXi host, not a VM.\n\n{msg}", "status": "done", "suggested_next": None}
+
+        if error_code in ("VM_NOT_FOUND", "HOST_NOT_FOUND"):
+            return {"final_answer": tr.get("summary", f"I could not find the requested object in vCenter."), "status": "done", "suggested_next": None}
+
         if tr.get("status") == "success":
             data = tr.get("data", {})
-            if "hosts" in data and data["hosts"]:
-                host = data["hosts"][0]
-                host_info = _format_host_details(host, entity)
-                suggested = "I can show VMs running on this host, check recent host events, or summarize active alarms related to it."
-                return {"final_answer": host_info, "status": "done", "suggested_next": suggested}
-        return {"final_answer": f"I could not find host **{entity}** in the vCenter inventory.", "status": "done", "suggested_next": None}
+
+            if intent == "get_vm_details":
+                vm_info = ""
+                if "vms" in data and data["vms"]:
+                    vm = data["vms"][0]
+                    vm_info = _format_vm_details(vm, entity)
+                elif isinstance(data, dict):
+                    vm_info = _format_vm_details(data, entity)
+                if vm_info:
+                    suggested = "I can also check recent events, snapshots, datastore usage, or active alarms related to this VM."
+                    return {"final_answer": vm_info, "status": "done", "suggested_next": suggested}
+                return {"final_answer": f"I found information for **{entity}** but could not format the details.", "status": "done", "suggested_next": None}
+
+            if intent == "get_host_details":
+                if "hosts" in data and data["hosts"]:
+                    host = data["hosts"][0]
+                    host_info = _format_host_details(host, entity)
+                    suggested = "I can show VMs running on this host, check recent host events, or summarize active alarms related to it."
+                    return {"final_answer": host_info, "status": "done", "suggested_next": suggested}
+
+        return {"final_answer": tr.get("summary", f"I could not find **{entity}** in the vCenter inventory."), "status": "done", "suggested_next": None}
+
+    # ── Search inventory ─────────────────────────────────────────────────
+    if intent == "search_inventory" and tool_results:
+        tr = tool_results[0]
+        data = tr.get("data", {})
+        matches = data.get("matches", [])
+        if matches:
+            lines = [f"Found {len(matches)} match(es) for **{data.get('query', '?')}**:\n"]
+            for m in matches:
+                lines.append(f"- **{m.get('name')}** ({m.get('type')})")
+            return {"final_answer": "\n".join(lines), "status": "done", "suggested_next": "I can show details for any of these objects. Which one would you like to inspect?"}
+        return {"final_answer": f"No matches found for **{entity}**. Check the name and try again.", "status": "done", "suggested_next": None}
 
     # ── Generic answer from tool results ─────────────────────────────────
     parts = [f"Here is what I found regarding your query:\n"]

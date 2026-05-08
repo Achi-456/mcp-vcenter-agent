@@ -108,6 +108,7 @@ async def _dispatch(tool_name: str, args: dict) -> dict:
         "get_powered_off_vms": "/api/v1/context/powered-off-vms",
         "get_datastore_health": "/api/v1/context/datastore-health",
         "get_rke2_vms": "/api/v1/context/rke2-vms",
+        "search_inventory_object": "/api/v1/context/search",
         "connect_vcenter": "/api/v1/connections/vcenter/reconnect",
         "list_available_tools": "/tools",
     }
@@ -140,6 +141,10 @@ async def _dispatch(tool_name: str, args: dict) -> dict:
             params["name"] = args["host_name"]
         elif tool.name == "get_host_details" and args.get("name"):
             params["name"] = args["name"]
+        elif tool.name == "search_inventory_object" and args.get("q"):
+            params["q"] = args["q"]
+        elif tool.name == "search_inventory_object" and args.get("name"):
+            params["q"] = args["name"]
 
         http_method = method_map.get(tool.name, "GET")
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -147,15 +152,40 @@ async def _dispatch(tool_name: str, args: dict) -> dict:
                 resp = await client.post(url, json=args)
             else:
                 resp = await client.get(url, params=params)
+
             if resp.status_code == 200:
                 data = resp.json()
                 summary = data.get("summary", "")
+
+                if data.get("ok") is False:
+                    error_code = data.get("error_code", "UNKNOWN_ERROR")
+                    suggested = data.get("suggested_tool")
+                    msg = data.get("message", "Tool returned an error.")
+                    return {
+                        "status": "error",
+                        "tool": tool.name,
+                        "summary": msg,
+                        "error_code": error_code,
+                        "suggested_tool": suggested,
+                    }
+
                 return {
                     "status": "success",
                     "tool": tool.name,
                     "data": data,
                     "summary": summary or f"Returned data for {tool.name}.",
                 }
+
+            if resp.status_code == 404:
+                body = resp.json()
+                return {
+                    "status": "error",
+                    "tool": tool.name,
+                    "summary": body.get("message", "Not found"),
+                    "error_code": body.get("error_code", "NOT_FOUND"),
+                    "suggested_tool": body.get("suggested_tool"),
+                }
+
             return {"status": "error", "tool": tool.name, "summary": f"HTTP {resp.status_code}"}
     except Exception as exc:
         return {"status": "error", "tool": tool.name, "summary": str(exc)[:100]}

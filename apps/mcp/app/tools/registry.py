@@ -389,6 +389,15 @@ TOOLS: list[ToolDef] = [
         implemented=True,
     ),
     ToolDef(
+        name="search_inventory_object",
+        display_name="Search Inventory Object",
+        description="Search VMs, hosts, datastores, networks, and clusters by name. Returns typed matches with confidence scores.",
+        category="Inventory & Information",
+        risk_level="read_only",
+        enabled=True,
+        implemented=True,
+    ),
+    ToolDef(
         name="govc_command_readonly",
         display_name="Govc Read-Only Command",
         description="Run a restricted read-only govc CLI command for VMware inspection. Destructive subcommands are blocked.",
