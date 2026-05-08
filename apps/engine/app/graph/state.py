@@ -19,5 +19,7 @@ class AgentState(TypedDict, total=False):
     tool_results: list[dict]
     final_answer: str | None
     suggested_next: str | None
+    llm_context: dict | None
+    answer_source: str | None
     error: str | None
     status: str

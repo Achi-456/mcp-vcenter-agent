@@ -1,10 +1,18 @@
 import json
+import os
 import re
 
 import httpx
+import structlog
 
 from app.tools.mcp_client import execute_tool_via_mcp, get_formatted_tool_list
 from app.graph.state import AgentState
+from app.llm.provider_factory import factory as llm_factory
+from app.prompts.vcenter_admin import SYSTEM_PROMPT, build_user_prompt
+from app.safety.redaction import redact_context
+from app.formatters.fallback_formatter import format_fallback_answer
+
+logger = structlog.get_logger()
 
 # ── Intent classification ───────────────────────────────────────────────────
 
@@ -198,145 +206,84 @@ async def execute_tools_node(state: AgentState) -> dict[str, object]:
     return {"tool_results": results, "status": "streaming"}
 
 
-async def generate_answer_node(state: AgentState) -> dict[str, object]:
-    tool_results = state.get("tool_results", [])
+async def prepare_llm_context_node(state: AgentState) -> dict[str, object]:
     intent = state.get("intent", "")
     entity = state.get("entity")
+    tool_results = state.get("tool_results", [])
+    safety = state.get("safety_verdict", {"blocked": False, "risk": "read_only"})
 
-    if intent == "list_tools":
-        formatted = await get_formatted_tool_list()
-        return {"final_answer": formatted, "status": "done", "suggested_next": None}
-
-    if intent in ("get_vm_details", "get_host_details") and tool_results:
-        tr = tool_results[0]
-
-        # Handle error responses with suggested_tool
-        error_code = tr.get("error_code")
-        if error_code == "WRONG_OBJECT_TYPE":
-            suggested = tr.get("suggested_tool")
-            msg = tr.get("summary", "")
-            return {"final_answer": f"**{entity}** looks like an ESXi host, not a VM.\n\n{msg}\n\nI will use the host details tool instead." if not suggested else f"**{entity}** looks like an ESXi host, not a VM.\n\n{msg}", "status": "done", "suggested_next": None}
-
-        if error_code in ("VM_NOT_FOUND", "HOST_NOT_FOUND"):
-            return {"final_answer": tr.get("summary", f"I could not find the requested object in vCenter."), "status": "done", "suggested_next": None}
-
-        if tr.get("status") == "success":
-            data = tr.get("data", {})
-
-            if intent == "get_vm_details":
-                vm_info = ""
-                if "vms" in data and data["vms"]:
-                    vm = data["vms"][0]
-                    vm_info = _format_vm_details(vm, entity)
-                elif isinstance(data, dict):
-                    vm_info = _format_vm_details(data, entity)
-                if vm_info:
-                    suggested = "I can also check recent events, snapshots, datastore usage, or active alarms related to this VM."
-                    return {"final_answer": vm_info, "status": "done", "suggested_next": suggested}
-                return {"final_answer": f"I found information for **{entity}** but could not format the details.", "status": "done", "suggested_next": None}
-
-            if intent == "get_host_details":
-                if "hosts" in data and data["hosts"]:
-                    host = data["hosts"][0]
-                    host_info = _format_host_details(host, entity)
-                    suggested = "I can show VMs running on this host, check recent host events, or summarize active alarms related to it."
-                    return {"final_answer": host_info, "status": "done", "suggested_next": suggested}
-
-        return {"final_answer": tr.get("summary", f"I could not find **{entity}** in the vCenter inventory."), "status": "done", "suggested_next": None}
-
-    # ── Search inventory ─────────────────────────────────────────────────
-    if intent == "search_inventory" and tool_results:
-        tr = tool_results[0]
-        data = tr.get("data", {})
-        matches = data.get("matches", [])
-        if matches:
-            lines = [f"Found {len(matches)} match(es) for **{data.get('query', '?')}**:\n"]
-            for m in matches:
-                lines.append(f"- **{m.get('name')}** ({m.get('type')})")
-            return {"final_answer": "\n".join(lines), "status": "done", "suggested_next": "I can show details for any of these objects. Which one would you like to inspect?"}
-        return {"final_answer": f"No matches found for **{entity}**. Check the name and try again.", "status": "done", "suggested_next": None}
-
-    # ── Generic answer from tool results ─────────────────────────────────
-    parts = [f"Here is what I found regarding your query:\n"]
+    tool_trace = []
     for tr in tool_results:
-        summary = tr.get("summary", "")
-        data = tr.get("data", {})
+        tool_trace.append({
+            "tool": tr.get("tool", "unknown"),
+            "status": tr.get("status", "unknown"),
+            "summary": tr.get("summary", ""),
+        })
 
-        if summary:
-            parts.append(summary)
+    llm_context = {
+        "user_message": state.get("user_message", ""),
+        "intent": intent,
+        "target_type": "host" if intent == "get_host_details" else ("vm" if intent == "get_vm_details" else None),
+        "target_name": entity,
+        "safety": safety,
+        "tool_trace": tool_trace,
+        "tool_results": tool_results,
+        "page_context": state.get("page_context"),
+        "provider": state.get("provider", ""),
+        "model": state.get("model", ""),
+    }
 
-        if data and isinstance(data, dict):
-            if "overview" in data:
-                ov = data["overview"]
-                vms = ov.get("vms", {})
-                hosts = ov.get("hosts", {})
-                ds = ov.get("datastores", {})
-                alarms = ov.get("alarms", {})
-                parts.append(f"\n- **VMs**: {vms.get('total', 0)} total ({vms.get('powered_on', 0)} on, {vms.get('powered_off', 0)} off)")
-                parts.append(f"- **Hosts**: {hosts.get('total', 0)} total ({hosts.get('connected', 0)} connected)")
-                parts.append(f"- **Datastores**: {ds.get('total', 0)} total ({ds.get('used_percent', 0)}% used)")
-                if alarms:
-                    parts.append(f"- **Alarms**: {alarms.get('total', 0)} total ({alarms.get('critical', 0)} critical)")
+    redacted = redact_context(llm_context)
+    logger.debug("llm_context_prepared", context=redacted, session_id=state.get("session_id", ""))
 
-    final = "\n".join(parts)
+    return {"llm_context": llm_context}
 
-    # Suggested next step
-    suggested = _get_suggested_next(intent, entity)
 
-    return {"final_answer": final, "status": "done", "suggested_next": suggested}
+async def generate_llm_answer_node(state: AgentState) -> dict[str, object]:
+    intent = state.get("intent", "")
+    entity = state.get("entity")
+    tool_results = state.get("tool_results", [])
+    llm_context = state.get("llm_context", {})
+
+    blocked = state.get("status") == "blocked"
+    safety_verdict = state.get("safety_verdict", {})
+
+    if blocked:
+        answer, next_step = format_fallback_answer(
+            intent=intent, entity=entity, tool_results=tool_results,
+            blocked=True, safety_message=safety_verdict.get("message"),
+        )
+        return {"final_answer": answer, "suggested_next": next_step, "status": "done", "answer_source": "blocked"}
+
+    provider = llm_context.get("provider", state.get("provider", "")) or "gemini"
+    model = llm_context.get("model", state.get("model", "")) or "gemini-2.5-flash"
+
+    client = llm_factory.get_client(provider)
+    llm_configured = client is not None
+
+    if llm_configured:
+        try:
+            user_prompt = build_user_prompt(llm_context)
+            answer = await client.generate(SYSTEM_PROMPT, user_prompt, model)
+
+            if answer and len(answer) > 20:
+                suggested = None
+                if "suggested next step" in answer.lower():
+                    suggested = None
+                return {"final_answer": answer, "suggested_next": suggested, "status": "done", "answer_source": "llm"}
+
+            logger.warning("llm_returned_empty", provider=provider)
+        except Exception as exc:
+            logger.warning("llm_generation_failed", provider=provider, error=str(exc)[:120])
+
+    answer, next_step = format_fallback_answer(
+        intent=intent, entity=entity, tool_results=tool_results,
+    )
+    return {"final_answer": answer, "suggested_next": next_step, "status": "done", "answer_source": "fallback"}
 
 
 async def save_session_node(state: AgentState) -> dict[str, object]:
     return {}
 
 
-# ── Formatting helpers ──────────────────────────────────────────────────────
 
-
-def _format_vm_details(vm: dict, name: str | None = None) -> str:
-    lines = [
-        f"I found **{name or vm.get('name', '?')}**. No action was taken.\n",
-        "| Property | Value |",
-        "|----------|-------|",
-        f"| **Power State** | {vm.get('power_state', 'unknown')} |",
-        f"| **Host** | {vm.get('host', 'N/A')} |",
-        f"| **IP Address** | {vm.get('ip_address', 'N/A')} |",
-        f"| **Datastore** | {vm.get('datastore', 'N/A')} |",
-        f"| **Guest OS** | {vm.get('guest_os', 'N/A')} |",
-        f"| **CPU** | {vm.get('cpu', 0)} vCPU |",
-        f"| **Memory** | {vm.get('memory_gb', 0)} GB |",
-        f"| **VMware Tools** | {vm.get('tools_status', 'unknown')} |",
-    ]
-    return "\n".join(lines)
-
-
-def _format_host_details(host: dict, name: str | None = None) -> str:
-    lines = [
-        f"I found ESXi host **{name or host.get('name', '?')}**. No action was taken.\n",
-        "| Property | Value |",
-        "|----------|-------|",
-        f"| **Connection State** | {host.get('connection_state', 'unknown')} |",
-        f"| **Power State** | {host.get('power_state', 'unknown')} |",
-        f"| **Version** | {host.get('version', 'N/A')} |",
-        f"| **Vendor** | {host.get('vendor', 'N/A')} |",
-        f"| **Model** | {host.get('model', 'N/A')} |",
-        f"| **CPU Cores** | {host.get('cpu_cores', 0)} |",
-        f"| **CPU Threads** | {host.get('cpu_threads', 0)} |",
-        f"| **Memory** | {host.get('memory_gb', 0)} GB |",
-        f"| **VM Count** | {host.get('vm_count', 0)} |",
-    ]
-    return "\n".join(lines)
-
-
-def _get_suggested_next(intent: str, entity: str | None) -> str | None:
-    suggestions: dict[str, str] = {
-        "environment_overview": "I can drill down into powered-off VMs, datastore health, active alarms, or recent events.",
-        "list_vms": "I can inspect any specific VM, check powered-off VMs, or show RKE2 cluster VMs.",
-        "get_vm_details": "I can check recent events, datastore usage, active alarms, or snapshots for this VM.",
-        "get_host_details": "I can show VMs running on this host, check recent host events, or summarize active alarms related to it.",
-        "datastore_health": "I can show the full datastore list, check powered-off VMs, or review active alarms.",
-        "active_alarms": "I can drill into specific alarms, check recent events, or get an environment overview.",
-        "recent_events": "I can check active alarms, datastore health, or inspect any VM.",
-        "rke2_vms": "I can inspect individual RKE2 VMs, check datastore health, or review active alarms.",
-    }
-    return suggestions.get(intent)

@@ -44,6 +44,7 @@ async def stream_agent(request: StreamRequest) -> StreamingResponse:
                 "safety_verdict": None,
                 "selected_tools": [],
                 "tool_results": [],
+                "llm_context": None,
                 "final_answer": None,
                 "suggested_next": None,
                 "error": None,
@@ -89,9 +90,18 @@ async def stream_agent(request: StreamRequest) -> StreamingResponse:
                                 "data_count": _get_data_count(tr.get("data", {})),
                             })
 
-                    if node_name == "generate_answer":
+                    if node_name == "generate_llm_answer":
+                        answer_source = node_output.get("answer_source", "")
                         final_answer = node_output.get("final_answer", "")
                         suggested_next = node_output.get("suggested_next")
+
+                        if answer_source == "llm":
+                            provider = state.get("provider", "unknown")
+                            model = state.get("model", "unknown")
+                            yield _sse("llm_start", {"provider": provider, "model": model})
+
+                        if answer_source == "fallback":
+                            yield _sse("fallback_used", {"reason": "LLM_NOT_CONFIGURED"})
 
                         if final_answer:
                             yield _sse("final", {"content": final_answer})

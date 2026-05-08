@@ -38,6 +38,7 @@ async def run_agent(request: RunRequest) -> StreamingResponse:
                 "safety_verdict": None,
                 "selected_tools": [],
                 "tool_results": [],
+                "llm_context": None,
                 "final_answer": None,
                 "suggested_next": None,
                 "error": None,
