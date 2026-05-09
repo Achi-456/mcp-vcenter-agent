@@ -797,3 +797,22 @@ NEXT_PUBLIC_APP_NAME=vCenter Agentic Ops
 9. **Every mutation is audit-logged.** After every operation_agent tool call, `audit.py` must write a row to `audit_log` with before/after state.
 
 10. **Argo CD deploys everything.** Never suggest `kubectl apply` for production changes. All changes go through a Git push to the Helm chart repo.
+
+---
+
+## 18. Current Rebuild Boundaries
+
+These boundaries apply before any coding work:
+
+1. Do not rename `apps/frontend`, `apps/backend`, `apps/engine`, or `apps/mcp`.
+2. Do not replace FastAPI, Next.js, LangGraph, LangChain, Postgres, Redis, Kubernetes, or Argo CD.
+3. Do not implement real destructive vCenter or Kubernetes actions.
+4. Do not expose raw `govc_command` or free-form shell execution.
+5. Do not store secrets, API keys, kubeconfigs, or vCenter credentials in Git.
+6. Do not store actual vCenter passwords or LLM API keys in Postgres.
+7. Postgres stores only `secret_name` or `secret_ref` plus non-sensitive metadata.
+8. Kubernetes Secrets store actual sensitive values.
+9. Never return or log secret values.
+10. Do not remove existing working endpoints unless replacing them with compatible versions.
+11. Only `read_only` tools execute automatically in the current phase.
+12. `low_risk`, `approval_required`, and `destructive` tools must return `TOOL_POLICY_BLOCKED` or `TOOL_REQUIRES_APPROVAL` until approval workflow exists.

@@ -28,7 +28,15 @@ documents live under `docs/knowledge/`.
 
 - [Clean rebuild baseline](docs/REBUILD-BASELINE.md)
 - [Phase 1.4 migration notes](docs/phase-1-4-migration.md)
-- [pyVmomi tool registry](docs/knowledge/pyvmomi-tool-registry.md)
+- [Current target architecture](docs/knowledge/00-current-target-architecture.md)
+- [Agentic flow knowledge](docs/knowledge/agentic-flow-knowledge.md)
+- [FastAPI backend architecture](docs/knowledge/fastapi-backend-architecture-knowledge.md)
+- [Database architecture](docs/knowledge/database-architecture-knowledge.md)
+- [Tool risk policy](docs/knowledge/tool-risk-policy.md)
+- [API contract v1](docs/knowledge/api-contract-v1.md)
+- [SSE event contract](docs/knowledge/sse-event-contract.md)
+- [Validation prompts](docs/knowledge/validation-prompts.md)
+- [pyVmomi tool registry](docs/knowledge/vcenter-tools/pyvmomi-tools.md)
 - [vCenter tool reference index](docs/knowledge/vcenter-tools/README-vcenter-tool-index.md)
 
 ## Knowledge Rules
