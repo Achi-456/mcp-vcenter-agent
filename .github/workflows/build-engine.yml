@@ -2,7 +2,7 @@ name: Build Agent Engine
 
 on:
   push:
-    branches: [main-rke2-mcp]
+    branches: [rebuild/vcenter-agentic-platform]
     paths:
       - "apps/engine/**"
       - ".github/workflows/build-engine.yml"
@@ -49,8 +49,9 @@ jobs:
           git diff --staged --quiet && exit 0
           git commit -m "ci: update agent-engine image to ${{ github.sha }} [skip ci]"
           for attempt in 1 2 3; do
-            git pull --rebase origin main-rke2-mcp
-            git push origin HEAD:main-rke2-mcp && exit 0
+            git pull --rebase origin ${{ github.ref_name }}
+            git push origin HEAD:${{ github.ref_name }} && exit 0
             sleep 5
           done
           exit 1
+
