@@ -1,45 +1,32 @@
-from fastapi import FastAPI, WebSocket
+import asyncio
+import json
+import uuid
+from typing import Any
+
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 
-from app.api.routes.agent import router as agent_router
-from app.api.routes.chat import router as chat_router
-from app.api.routes.connections import router as connections_router
-from app.api.routes.inventory import router as inventory_router
-from app.api.routes.monitoring import router as monitoring_router
-from app.api.routes.context import router as context_router
-from app.api.routes.llm import router as llm_router
-from app.db.check import check_dependencies
 
-app = FastAPI(title="vCenter Agentic Ops API")
+class ChatRequest(BaseModel):
+    message: str = Field(min_length=1)
+    session_id: str | None = None
+
+
+app = FastAPI(title="vCenter Agentic Ops API", version="0.1.0-rebuild")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://infra-agent-console.dclab.local", "http://localhost:3000"],
+    allow_origins=[
+        "https://infra-agent-console.dclab.local",
+        "https://app.dclab.local",
+        "http://localhost:3000",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-app.include_router(agent_router)
-app.include_router(chat_router)
-app.include_router(connections_router)
-app.include_router(inventory_router)
-app.include_router(monitoring_router)
-app.include_router(context_router)
-app.include_router(llm_router)
-
-
-@app.get("/api/v1/tools")
-async def tools_proxy():
-    import httpx
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(f"http://mcp-server.agentic-app.svc.cluster.local:8001/tools")
-            return resp.json()
-    except Exception:
-        from fastapi.responses import JSONResponse
-        return JSONResponse({"tools": [], "error": "MCP server unreachable"}, status_code=503)
 
 
 @app.get("/health")
@@ -48,25 +35,65 @@ async def health() -> dict[str, str]:
 
 
 @app.get("/ready")
-async def ready() -> JSONResponse:
-    results = await check_dependencies()
-    ready_status = all(value == "ok" for value in results.values())
-    status_code = 200 if ready_status else 503
-    payload = {"status": "ready" if ready_status else "degraded", **results}
-    return JSONResponse(payload, status_code=status_code)
+async def ready() -> dict[str, Any]:
+    return {
+        "status": "ready",
+        "backend": "ok",
+        "mode": "clean-rebuild-baseline",
+    }
 
 
-@app.get("/api/v1/chat/stream-test")
-async def stream_test() -> StreamingResponse:
+@app.get("/api/v1/platform/status")
+async def platform_status() -> dict[str, Any]:
+    return {
+        "status": "ok",
+        "services": [
+            {"name": "backend", "status": "ok", "detail": "FastAPI gateway online"},
+            {"name": "agent-engine", "status": "planned", "detail": "Phase rebuild placeholder"},
+            {"name": "mcp", "status": "planned", "detail": "MCP placeholder online after deploy"},
+            {"name": "postgres", "status": "external", "detail": "Not checked by baseline API"},
+            {"name": "redis", "status": "external", "detail": "Not checked by baseline API"},
+        ],
+    }
+
+
+@app.post("/api/v1/chat/stream")
+@app.post("/api/v1/agent/run")
+async def chat_stream(request: ChatRequest) -> StreamingResponse:
+    session_id = request.session_id or str(uuid.uuid4())
+
     async def events():
-        for token in ("phase", "07", "sse", "ok"):
-            yield f"event: token\ndata: {token}\n\n"
+        payloads = [
+            {"type": "session", "session_id": session_id},
+            {
+                "type": "node",
+                "node": "gateway",
+                "output": {"message": request.message, "status": "received"},
+            },
+            {
+                "type": "final",
+                "content": "Hi, I'm your vCenter Agent. How can I help you with your infrastructure today?",
+            },
+            {"type": "done"},
+        ]
+        for payload in payloads:
+            yield f"data: {json.dumps(payload)}\n\n"
+            await asyncio.sleep(0.05)
 
-    return StreamingResponse(events(), media_type="text/event-stream")
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.websocket("/ws")
 async def websocket_echo(websocket: WebSocket) -> None:
     await websocket.accept()
-    await websocket.send_json({"status": "ok", "message": "websocket connected"})
-    await websocket.close()
+    try:
+        while True:
+            message = await websocket.receive_text()
+            await websocket.send_json({"type": "echo", "message": message})
+    except WebSocketDisconnect:
+        return
+

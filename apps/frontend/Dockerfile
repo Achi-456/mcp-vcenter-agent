@@ -1,20 +1,18 @@
 FROM node:20-alpine AS deps
 WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci
+COPY package.json package-lock.json* ./
+RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
 FROM node:20-alpine AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-ARG NEXT_PUBLIC_API_URL
-ARG NEXT_PUBLIC_API_BASE_URL
-ARG NEXT_PUBLIC_WS_URL
-ARG NEXT_PUBLIC_APP_NAME="AgenticOps"
+ARG NEXT_PUBLIC_API_URL=https://api.dclab.local
+ARG NEXT_PUBLIC_WS_URL=wss://api.dclab.local/ws
+ARG NEXT_PUBLIC_APP_NAME=vCenter\ Agentic\ Ops
 
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
-ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
 ENV NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL
 ENV NEXT_PUBLIC_APP_NAME=$NEXT_PUBLIC_APP_NAME
 
@@ -29,5 +27,5 @@ COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
 
 EXPOSE 3000
-
 CMD ["node", "server.js"]
+

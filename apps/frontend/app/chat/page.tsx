@@ -1,188 +1,92 @@
-"use client"
+'use client'
 
-import { useState, useEffect, Suspense } from "react"
-import { useSearchParams } from "next/navigation"
-import { useSSEChat } from "@/hooks/use-sse-chat"
-import type { ChatEvent } from "@/lib/chat-events"
-import { api } from "@/lib/api"
-import { Button } from "@/components/ui/button"
-import { Textarea } from "@/components/ui/textarea"
-import { Badge } from "@/components/ui/badge"
-import { Card } from "@/components/ui/card"
-import { cn } from "@/lib/utils"
+import { FormEvent, useState } from 'react'
 
-interface Message {
-  role: "user" | "agent"
+type ChatMessage = {
+  role: 'assistant' | 'user'
   content: string
-  nodes?: string[]
-  plan?: { goal: string; risk: string; steps: Array<{ id: string; agent: string; tool: string; reason: string }> }
-  error?: string
-}
-
-function ChatContent() {
-  const searchParams = useSearchParams()
-  const initialSessionId = searchParams?.get("session_id")
-
-  const [messages, setMessages] = useState<Message[]>([])
-  const [input, setInput] = useState("")
-  const { send, stop, isStreaming, sessionId, newSession } = useSSEChat()
-
-  useEffect(() => {
-    if (initialSessionId) {
-      api.getSession(initialSessionId).then(data => {
-        if (data && data.values && data.values.messages) {
-          const history: Message[] = data.values.messages.map((m: any) => ({
-            role: m.type === "human" ? "user" : "agent",
-            content: m.content || "",
-            nodes: m.tool_calls ? m.tool_calls.map((t: any) => `tool:${t.name}`) : [],
-          }))
-          // Only take human/ai messages, exclude raw tool outputs for cleaner UI
-          setMessages(history.filter(m => m.content || (m.nodes && m.nodes.length > 0)))
-          
-          // We need a way to set the session ID in the hook if it wasn't started by a send
-          // But useSSEChat will pick it up on the next send if we pass it manually
-        }
-      })
-    }
-  }, [initialSessionId])
-
-  const handleSend = () => {
-    const text = input.trim()
-    if (!text || isStreaming) return
-    setInput("")
-    setMessages((prev) => [...prev, { role: "user", content: text }, { role: "agent", content: "", nodes: [] }])
-
-    send(
-      { 
-        message: text, 
-        session_id: sessionId || initialSessionId, 
-        provider: "gemini", 
-        model: "gemini-2.5-flash", 
-        allow_high_risk: false 
-      },
-      (evt: ChatEvent) => {
-        setMessages((prev) => {
-          const updated = [...prev]
-          const last = { ...updated[updated.length - 1] }
-          last.nodes = [...(last.nodes || [])]
-          if (evt.type === "start") { /* session started */ }
-          if (evt.type === "intent") { last.nodes!.push(`intent:${evt.intent}`) }
-          if (evt.type === "tool_call") { last.nodes!.push(`tool:${evt.tool}`) }
-          if (evt.type === "tool_result") { last.nodes!.push(`result:${evt.tool}`) }
-          if (evt.type === "final") { last.content = evt.content || last.content }
-          if (evt.type === "blocked") { last.error = evt.message }
-          if (evt.type === "error") last.error = evt.message
-          updated[updated.length - 1] = last
-          return updated
-        })
-      },
-      (err) => {
-        setMessages((prev) => {
-          const updated = [...prev]
-          updated[updated.length - 1] = { ...updated[updated.length - 1], error: err }
-          return updated
-        })
-      },
-    )
-  }
-
-  return (
-    <div className="flex h-[calc(100vh-7rem)] flex-col">
-      <div className="flex items-center justify-between border-b border-border pb-3">
-        <div>
-          <h1 className="text-lg font-semibold">Agent Chat</h1>
-          <p className="text-xs text-muted-foreground">
-            {sessionId ? `Session ${sessionId.slice(0, 8)}...` : "New Session"}
-          </p>
-        </div>
-        <Button variant="ghost" size="sm" className="text-xs" onClick={newSession}>
-          + New
-        </Button>
-      </div>
-
-      <div className="flex-1 overflow-y-auto py-4 space-y-4">
-        {messages.length === 0 && (
-          <div className="flex h-full items-center justify-center text-center">
-            <div>
-              <h2 className="text-lg font-semibold text-muted-foreground">AgenticOps Chat</h2>
-              <p className="mt-1 text-sm text-muted-foreground/60">
-                Ask about VMs, hosts, or operational tasks
-              </p>
-            </div>
-          </div>
-        )}
-
-        {messages.map((msg, i) => (
-          <div key={i} className={cn("flex", msg.role === "user" ? "justify-end" : "justify-start")}>
-            <div className="max-w-[80%] space-y-2">
-              <Card className={cn(
-                "px-4 py-3 text-sm",
-                msg.role === "user"
-                  ? "border-emerald-600/30 bg-emerald-600/10"
-                  : "border-border bg-card"
-              )}>
-                <p className="whitespace-pre-wrap">{msg.content || (isStreaming && i === messages.length - 1 ? "..." : "")}</p>
-              </Card>
-
-              {msg.plan && (
-                <Card className="border-cyan-500/20 bg-cyan-500/5 px-3 py-2 text-xs">
-                  <div className="flex items-center gap-2 mb-1">
-                    <Badge variant="outline" className="text-[10px]">
-                      {msg.plan.risk}
-                    </Badge>
-                    <span className="text-muted-foreground">{msg.plan.goal}</span>
-                  </div>
-                  {msg.plan.steps?.map((s) => (
-                    <div key={s.id} className="flex gap-2 mt-1">
-                      <span className="text-cyan-400 font-mono-code text-xs">{s.tool}</span>
-                      <span className="text-muted-foreground">{s.reason}</span>
-                    </div>
-                  ))}
-                </Card>
-              )}
-
-              {msg.nodes && msg.nodes.length > 0 && (
-                <div className="flex flex-wrap gap-1">
-                  {msg.nodes.map((n, j) => (
-                    <Badge key={j} variant="secondary" className="text-[10px]">{n}</Badge>
-                  ))}
-                </div>
-              )}
-
-              {msg.error && (
-                <Card className="border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400">
-                  {msg.error}
-                </Card>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="flex gap-2 border-t border-border pt-4">
-        <Textarea
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend() } }}
-          placeholder="Ask about your vCenter infrastructure..."
-          className="min-h-[44px] resize-none text-sm"
-          disabled={isStreaming}
-          rows={1}
-        />
-        {isStreaming ? (
-          <Button variant="destructive" size="sm" onClick={stop}>Stop</Button>
-        ) : (
-          <Button size="sm" onClick={handleSend} disabled={!input.trim()}>Send</Button>
-        )}
-      </div>
-    </div>
-  )
 }
 
 export default function ChatPage() {
+  const [messages, setMessages] = useState<ChatMessage[]>([
+    {
+      role: 'assistant',
+      content: "Hi, I'm your vCenter Agent. How can I help you with your infrastructure today?",
+    },
+  ])
+  const [input, setInput] = useState('')
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const trimmed = input.trim()
+    if (!trimmed) return
+
+    setMessages((current) => [
+      ...current,
+      { role: 'user', content: trimmed },
+      {
+        role: 'assistant',
+        content:
+          'Baseline chat is online. Next rebuild step is wiring this to the FastAPI SSE stream and agent engine.',
+      },
+    ])
+    setInput('')
+  }
+
   return (
-    <Suspense fallback={<div className="flex h-[calc(100vh-7rem)] items-center justify-center">Loading chat...</div>}>
-      <ChatContent />
-    </Suspense>
+    <main className="grid-shell min-h-screen px-6 py-8">
+      <section className="mx-auto grid max-w-6xl gap-6 lg:grid-cols-[1fr_320px]">
+        <div className="rounded-3xl border border-emerald-400/20 bg-black/35 p-6 backdrop-blur">
+          <div className="border-b border-emerald-400/15 pb-5">
+            <p className="text-xs uppercase tracking-[0.35em] text-emerald-300/80">
+              Agent Console
+            </p>
+            <h1 className="mt-3 text-3xl font-semibold text-white">Chat</h1>
+          </div>
+
+          <div className="mt-6 flex min-h-[520px] flex-col gap-4">
+            {messages.map((message, index) => (
+              <div
+                key={`${message.role}-${index}`}
+                className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-6 ${
+                  message.role === 'user'
+                    ? 'ml-auto bg-emerald-400 text-black'
+                    : 'border border-emerald-400/15 bg-console-panel text-emerald-50'
+                }`}
+              >
+                {message.content}
+              </div>
+            ))}
+          </div>
+
+          <form onSubmit={submit} className="mt-6 flex gap-3">
+            <input
+              value={input}
+              onChange={(event) => setInput(event.target.value)}
+              placeholder="Ask about vCenter infrastructure..."
+              className="min-w-0 flex-1 rounded-full border border-emerald-400/20 bg-black/40 px-5 py-3 text-sm text-white outline-none ring-emerald-300/40 transition placeholder:text-emerald-100/35 focus:ring-2"
+            />
+            <button
+              type="submit"
+              className="rounded-full bg-emerald-400 px-6 py-3 text-sm font-semibold text-black transition hover:bg-emerald-300"
+            >
+              Send
+            </button>
+          </form>
+        </div>
+
+        <aside className="rounded-3xl border border-emerald-400/20 bg-console-panel/80 p-6 backdrop-blur">
+          <p className="text-xs uppercase tracking-[0.35em] text-emerald-300/80">
+            Session Rail
+          </p>
+          <div className="mt-5 space-y-4 text-sm text-emerald-50/70">
+            <p>Current branch is a rebuild baseline.</p>
+            <p>SSE event rendering comes after backend and engine contracts stabilize.</p>
+            <p>No vCenter credentials or API keys are stored in this UI.</p>
+          </div>
+        </aside>
+      </section>
+    </main>
   )
 }
+

@@ -17,6 +17,7 @@ Run order:
 11. [Phase 10 - MetalLB VIP, Hostname Rename, And CA Trust](PHASE-10-METALLB-VIP-CA-TRUST.md)
 12. [Phase 11 - Permanent Kubectl Tunnel](PHASE-11-PERMANENT-KUBECTL-TUNNEL.md)
 13. [Phase 12 - Agent Engine Skeleton](PHASE-12-AGENT-ENGINE-SKELETON.md)
+14. [Phase 13 - Clean Rebuild Baseline](PHASE-13-CLEAN-REBUILD-BASELINE.md)
 
 Lab defaults:
 
