@@ -15,7 +15,7 @@ export interface ChatStreamRequest {
   page_context?: Record<string, unknown>
 }
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "https://api.dclab.local"
+const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || ""
 
 export function useSSEChat() {
   const [isStreaming, setIsStreaming] = useState(false)
