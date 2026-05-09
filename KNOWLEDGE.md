@@ -29,6 +29,7 @@ documents live under `docs/knowledge/`.
 - [Clean rebuild baseline](docs/REBUILD-BASELINE.md)
 - [Phase 1.4 migration notes](docs/phase-1-4-migration.md)
 - [pyVmomi tool registry](docs/knowledge/pyvmomi-tool-registry.md)
+- [vCenter tool reference index](docs/knowledge/vcenter-tools/README-vcenter-tool-index.md)
 
 ## Knowledge Rules
 
@@ -36,4 +37,3 @@ documents live under `docs/knowledge/`.
 - Store credentials in Kubernetes Secrets or local secure stores only.
 - Mark every tool by category and risk level before exposing it to the agent.
 - Enable read-only tools first; keep approval-required and destructive tools disabled until the approval workflow exists.
-
