@@ -6,13 +6,14 @@ from typing import Any
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
 
+from app.api.routes import audit, connections, health, sessions, tools
+from app.core.config import get_settings
+from app.core.logging import configure_logging
+from app.schemas.chat import ChatRequest
 
-class ChatRequest(BaseModel):
-    message: str = Field(min_length=1)
-    session_id: str | None = None
-
+settings = get_settings()
+configure_logging(settings.log_level)
 
 app = FastAPI(title="vCenter Agentic Ops API", version="0.1.0-rebuild")
 
@@ -28,18 +29,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(health.router)
+app.include_router(tools.router)
+app.include_router(connections.router)
+app.include_router(audit.router)
+app.include_router(sessions.router)
+
 
 @app.get("/health")
-async def health() -> dict[str, str]:
+async def compatibility_health() -> dict[str, str]:
     return {"status": "ok"}
 
 
 @app.get("/ready")
-async def ready() -> dict[str, Any]:
+async def compatibility_ready() -> dict[str, Any]:
     return {
         "status": "ready",
         "backend": "ok",
-        "mode": "clean-rebuild-baseline",
+        "mode": "fastapi-foundation-pack",
     }
 
 
@@ -51,8 +58,8 @@ async def platform_status() -> dict[str, Any]:
             {"name": "backend", "status": "ok", "detail": "FastAPI gateway online"},
             {"name": "agent-engine", "status": "planned", "detail": "Phase rebuild placeholder"},
             {"name": "mcp", "status": "planned", "detail": "MCP placeholder online after deploy"},
-            {"name": "postgres", "status": "external", "detail": "Not checked by baseline API"},
-            {"name": "redis", "status": "external", "detail": "Not checked by baseline API"},
+            {"name": "postgres", "status": "external", "detail": "Use /api/v1/health/services"},
+            {"name": "redis", "status": "external", "detail": "Use /api/v1/health/services"},
         ],
     }
 
@@ -96,4 +103,3 @@ async def websocket_echo(websocket: WebSocket) -> None:
             await websocket.send_json({"type": "echo", "message": message})
     except WebSocketDisconnect:
         return
-

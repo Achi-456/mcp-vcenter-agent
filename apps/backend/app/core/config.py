@@ -1,0 +1,28 @@
+from functools import lru_cache
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    app_env: str = Field(default="development", alias="APP_ENV")
+    log_level: str = Field(default="INFO", alias="LOG_LEVEL")
+    db_url: str | None = Field(default=None, alias="DB_URL")
+    redis_url: str | None = Field(default=None, alias="REDIS_URL")
+    agent_engine_url: str = Field(
+        default="http://agent-engine.agentic-agents.svc.cluster.local:8080",
+        alias="AGENT_ENGINE_URL",
+    )
+    mcp_server_url: str = Field(
+        default="http://mcp-server.agentic-app.svc.cluster.local:8001",
+        alias="MCP_SERVER_URL",
+    )
+    vcenter_secret_name: str = Field(default="agentic-vcenter-default", alias="VCENTER_SECRET_NAME")
+    k8s_namespace: str = Field(default="agentic-app", alias="POD_NAMESPACE")
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
