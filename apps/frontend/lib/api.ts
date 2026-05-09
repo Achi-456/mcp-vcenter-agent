@@ -51,7 +51,7 @@ export const api = {
 
   // Sessions
   getSessions: () => request<{ items: Session[] }>("/api/v1/sessions"),
-  getSession: (id: string) => request<Session>("/api/v1/sessions/" + id),
+  getSession: (id: string) => request<SessionData>("/api/v1/sessions/" + id),
   renameSession: (id: string, title: string) => request<{ ok: boolean }>("/api/v1/sessions/" + id, {
     method: "PATCH",
     body: JSON.stringify({ title })
@@ -205,7 +205,16 @@ export interface LLMStatus {
   configured: boolean; provider: string | null; model: string | null; ready: boolean
 }
 
-// ── Session types ──────────────────────────────────────────────────────────
+export interface SessionData {
+  session_id: string;
+  found: boolean;
+  values: {
+    messages?: Array<{ type: string; content: string; tool_calls?: any[] }>;
+    [key: string]: any;
+  };
+  next: string[];
+  metadata: any;
+}
 
 export interface Session {
   id: string; title: string; created_at: string; updated_at: string; message_count: number
