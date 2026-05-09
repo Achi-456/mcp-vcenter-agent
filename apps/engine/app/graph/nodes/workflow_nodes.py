@@ -109,6 +109,11 @@ def _classify_intent(message: str) -> tuple[str, str | None]:
     if any(w in lower for w in ["vm", "virtual machine"]):
         return ("list_vms", None)
 
+    # Greeting / general chat — no tool execution needed
+    greetings = ["hi", "hello", "hey", "greetings", "good morning", "good afternoon", "good evening", "howdy", "sup", "yo", "what's up"]
+    if lower.strip() in greetings or lower.strip().rstrip(".!?") in greetings:
+        return ("greeting", None)
+
     # Fallback: environment overview
     return ("environment_overview", None)
 
@@ -149,6 +154,15 @@ async def classify_request_node(state: AgentState) -> dict[str, object]:
     message = state["user_message"]
     intent, entity = _classify_intent(message)
     tools = _intent_to_tools(intent)
+
+    if intent == "greeting":
+        return {
+            "status": "greeting",
+            "intent": "greeting",
+            "entity": None,
+            "selected_tools": [],
+            "safety_verdict": {"blocked": False, "risk": "read_only"},
+        }
 
     if intent == "risky_operation":
         return {
@@ -258,7 +272,16 @@ async def generate_llm_answer_node(state: AgentState) -> dict[str, object]:
     llm_context = state.get("llm_context", {})
 
     blocked = state.get("status") == "blocked"
+    greeting = state.get("status") == "greeting"
     safety_verdict = state.get("safety_verdict", {})
+
+    if greeting:
+        return {
+            "final_answer": "Hello, I'm your vCenter operations assistant. I can help you inspect VMs, hosts, datastores, alarms, and events in your environment. Try asking something like \"list all VMs\" or \"show host details for esxi01.dclab.com\".",
+            "suggested_next": "Try a quick action from the panel such as Environment Overview or List Tools.",
+            "status": "done",
+            "answer_source": "greeting",
+        }
 
     if blocked:
         answer, next_step = format_fallback_answer(

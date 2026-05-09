@@ -32,8 +32,8 @@ def build_graph(checkpointer: Any) -> Any:
 
     graph.add_conditional_edges(
         "classify_request",
-        lambda state: "blocked" if state.get("status") == "blocked" else "continue",
-        {"blocked": "prepare_llm_context", "continue": "safety_check"},
+        lambda state: "blocked" if state.get("status") == "blocked" else "greeting" if state.get("status") == "greeting" else "continue",
+        {"blocked": "prepare_llm_context", "greeting": "prepare_llm_context", "continue": "safety_check"},
     )
 
     graph.add_conditional_edges(

@@ -120,6 +120,9 @@ async def stream_agent(request: StreamRequest) -> StreamingResponse:
                         final_answer = node_output.get("final_answer", "")
                         suggested_next = node_output.get("suggested_next")
 
+                        if answer_source == "greeting":
+                            yield _sse("intent", {"intent": "greeting"})
+
                         if answer_source == "llm":
                             yield _sse("llm_start", {"provider": request.provider, "model": request.model})
 
