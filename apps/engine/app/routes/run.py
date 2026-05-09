@@ -24,24 +24,11 @@ async def run_agent(request: RunRequest) -> StreamingResponse:
         try:
             graph = await runtime.graph()
             config = {"configurable": {"thread_id": session_id}}
+            from langchain_core.messages import HumanMessage
             initial_state = {
                 "session_id": session_id,
                 "user_message": request.message,
-                "messages": [],
-                "provider": "gemini",
-                "model": "gemini-2.5-flash",
-                "allow_high_risk": False,
-                "page_context": None,
-                "turn": 0,
-                "intent": "",
-                "entity": None,
-                "safety_verdict": None,
-                "selected_tools": [],
-                "tool_results": [],
-                "llm_context": None,
-                "final_answer": None,
-                "suggested_next": None,
-                "error": None,
+                "messages": [HumanMessage(content=request.message)],
                 "status": "thinking",
             }
 
@@ -49,15 +36,25 @@ async def run_agent(request: RunRequest) -> StreamingResponse:
 
             async for event in graph.astream(initial_state, config=config):
                 for node_name, node_output in event.items():
+                    # Extract string representation of messages
+                    safe_output = {}
+                    for k, v in node_output.items():
+                        if k == "messages":
+                            safe_output[k] = [{"type": m.type, "content": m.content, "tool_calls": getattr(m, "tool_calls", [])} for m in v]
+                        else:
+                            safe_output[k] = v
+                            
                     payload = {
                         "type": "node",
                         "node": node_name,
-                        "output": node_output,
+                        "output": safe_output,
                     }
                     yield f"data: {json.dumps(payload)}\n\n"
 
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
         except Exception as exc:
+            import traceback
+            traceback.print_exc()
             payload = {"type": "error", "message": str(exc)}
             yield f"data: {json.dumps(payload)}\n\n"
 

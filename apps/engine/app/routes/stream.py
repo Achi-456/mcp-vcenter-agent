@@ -30,28 +30,21 @@ async def stream_agent(request: StreamRequest) -> StreamingResponse:
             graph = await runtime.graph()
             config = {"configurable": {"thread_id": session_id}}
 
+            from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
             initial_state: dict[str, object] = {
                 "session_id": session_id,
                 "user_message": request.message,
-                "messages": [],
+                "messages": [HumanMessage(content=request.message)],
                 "provider": request.provider,
                 "model": request.model,
                 "allow_high_risk": request.allow_high_risk,
                 "page_context": request.page_context,
-                "turn": 0,
-                "intent": "",
-                "entity": None,
-                "safety_verdict": None,
-                "selected_tools": [],
-                "tool_results": [],
-                "llm_context": None,
-                "final_answer": None,
-                "suggested_next": None,
-                "error": None,
-                "status": "thinking",
             }
 
             yield _sse("start", {"session_id": session_id, "run_id": run_id})
+            
+            # Keep track of last message count so we only emit new ones
+            last_message_count = len(initial_state["messages"])
 
             async for event in graph.astream(initial_state, config=config):
                 for node_name, node_output in event.items():
@@ -59,85 +52,41 @@ async def stream_agent(request: StreamRequest) -> StreamingResponse:
                         continue
 
                     status = node_output.get("status", "")
-
-                    if status == "blocked":
-                        verdict = node_output.get("safety_verdict", {})
-                        yield _sse("blocked", {
-                            "reason": verdict.get("reason", "HIGH_RISK_ACTION"),
-                            "message": verdict.get("message", "Action blocked for safety."),
-                        })
-                        yield _sse("done", {})
-                        return
-
-                    if node_name == "classify_request":
-                        intent = node_output.get("intent", "")
-                        entity = node_output.get("entity")
-                        yield _sse("intent", {"intent": intent, "entity": entity})
-                        yield _sse("safety_check", {"passed": True})
-
-                    if node_name == "select_tools":
-                        tools = node_output.get("selected_tools", [])
-                        for tool_name in tools:
-                            yield _sse("tool_call", {"tool": tool_name, "status": "running", "args": {}})
-
-                    if node_name == "execute_tools":
-                        tool_results = node_output.get("tool_results", [])
-                        for tr in tool_results:
-                            status = tr.get("status", "error")
-                            tool_name = tr.get("tool", "unknown")
-
-                            if status == "cache_hit":
-                                yield _sse("tool_cache_hit", {
-                                    "tool": tool_name,
-                                })
-                                yield _sse("tool_result", {
-                                    "tool": tool_name,
-                                    "status": "success",
-                                    "summary": tr.get("summary", ""),
-                                    "cached": True,
-                                })
-                            elif status == "error":
-                                yield _sse("tool_error", {
-                                    "tool": tool_name,
-                                    "error_code": tr.get("error_code", "UNKNOWN"),
-                                    "message": tr.get("message", tr.get("summary", "")),
-                                })
-                                yield _sse("tool_result", {
-                                    "tool": tool_name,
-                                    "status": "error",
-                                    "summary": tr.get("summary", ""),
-                                })
-                            else:
-                                yield _sse("tool_result", {
-                                    "tool": tool_name,
-                                    "status": status,
-                                    "summary": tr.get("summary", ""),
-                                    "data_count": _get_data_count(tr.get("data", {})),
-                                })
-
-                    if node_name == "generate_llm_answer":
-                        answer_source = node_output.get("answer_source", "")
-                        final_answer = node_output.get("final_answer", "")
-                        suggested_next = node_output.get("suggested_next")
-
-                        if answer_source == "greeting":
-                            yield _sse("intent", {"intent": "greeting"})
-
-                        if answer_source == "llm":
-                            yield _sse("llm_start", {"provider": request.provider, "model": request.model})
-
-                        if answer_source == "fallback":
-                            yield _sse("fallback_used", {"reason": "LLM_NOT_CONFIGURED"})
-
-                        if final_answer:
-                            yield _sse("final", {"content": final_answer})
-
-                        if suggested_next:
-                            yield _sse("suggested_next_step", {"content": suggested_next})
+                    messages = node_output.get("messages", [])
+                    
+                    if not messages:
+                        continue
+                        
+                    # Find new messages
+                    if isinstance(messages, list):
+                        new_messages = messages
+                    else:
+                        new_messages = [messages]
+                        
+                    for msg in new_messages:
+                        if isinstance(msg, AIMessage):
+                            # AIMessage might have tool calls or just final text
+                            if msg.tool_calls:
+                                yield _sse("intent", {"intent": "using_tools"})
+                                for tc in msg.tool_calls:
+                                    yield _sse("tool_call", {"tool": tc["name"], "status": "running", "args": tc["args"]})
+                            elif msg.content:
+                                yield _sse("llm_start", {"provider": request.provider, "model": request.model})
+                                yield _sse("final", {"content": msg.content})
+                                
+                        elif isinstance(msg, ToolMessage):
+                            # Tool finished
+                            yield _sse("tool_result", {
+                                "tool": msg.name,
+                                "status": "success" if "ok" in msg.content or "true" in msg.content.lower() else "completed",
+                                "summary": "Tool finished execution"
+                            })
 
             yield _sse("done", {})
 
         except Exception as exc:
+            import traceback
+            traceback.print_exc()
             yield _sse("error", {"message": str(exc)})
 
     return StreamingResponse(

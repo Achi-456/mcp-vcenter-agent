@@ -52,6 +52,10 @@ export const api = {
   // Sessions
   getSessions: () => request<{ items: Session[] }>("/api/v1/sessions"),
   getSession: (id: string) => request<Session>("/api/v1/sessions/" + id),
+  renameSession: (id: string, title: string) => request<{ ok: boolean }>("/api/v1/sessions/" + id, {
+    method: "PATCH",
+    body: JSON.stringify({ title })
+  }),
 
   // Settings
   getSettings: () => request<SettingsItems>("/api/v1/settings"),

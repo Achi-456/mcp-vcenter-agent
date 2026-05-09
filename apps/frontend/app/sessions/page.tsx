@@ -57,10 +57,21 @@ export default function SessionsPage() {
             </TableHeader>
             <TableBody>
               {sessions.map((s) => (
-                <TableRow key={s.id}>
-                  <TableCell className="text-sm font-medium">{s.title || "-"}</TableCell>
+                <TableRow key={s.id} className="cursor-pointer hover:bg-muted/50" onClick={() => window.location.href = `/chat?session_id=${s.id}`}>
+                  <TableCell className="text-sm font-medium" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center gap-2">
+                      <span>{s.title || "New Session"}</span>
+                      <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px]" onClick={async () => {
+                        const newTitle = prompt("Enter new title:", s.title || "");
+                        if (newTitle && newTitle !== s.title) {
+                          await api.renameSession(s.id, newTitle);
+                          fetch();
+                        }
+                      }}>Rename</Button>
+                    </div>
+                  </TableCell>
                   <TableCell className="text-xs font-mono-code text-muted-foreground">{s.id}</TableCell>
-                  <TableCell className="text-xs text-muted-foreground">{s.created_at}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{new Date(s.created_at).toLocaleString()}</TableCell>
                   <TableCell className="text-xs text-muted-foreground">{s.message_count}</TableCell>
                 </TableRow>
               ))}

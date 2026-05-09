@@ -1,51 +1,41 @@
 from typing import Any
 
 from langgraph.graph import END, START, StateGraph
+from langgraph.prebuilt import ToolNode, tools_condition
 
-from app.graph.nodes.workflow_nodes import (
-    load_session_node,
-    classify_request_node,
-    safety_check_node,
-    select_tools_node,
-    execute_tools_node,
-    prepare_llm_context_node,
-    generate_llm_answer_node,
-    save_session_node,
-)
 from app.graph.state import AgentState
-
+from app.graph.nodes.workflow_nodes import agent_node, save_session_node
+from app.tools.registry import get_langchain_tools
 
 def build_graph(checkpointer: Any) -> Any:
     graph = StateGraph(AgentState)
+    
+    tools = get_langchain_tools()
+    
+    # Initialize the ToolNode with our mapped tools
+    tool_node = ToolNode(tools) if tools else None
 
-    graph.add_node("load_session", load_session_node)
-    graph.add_node("classify_request", classify_request_node)
-    graph.add_node("safety_check", safety_check_node)
-    graph.add_node("select_tools", select_tools_node)
-    graph.add_node("execute_tools", execute_tools_node)
-    graph.add_node("prepare_llm_context", prepare_llm_context_node)
-    graph.add_node("generate_llm_answer", generate_llm_answer_node)
+    # Add nodes
+    graph.add_node("agent", agent_node)
     graph.add_node("save_session", save_session_node)
+    if tool_node:
+        graph.add_node("tools", tool_node)
 
-    graph.add_edge(START, "load_session")
-    graph.add_edge("load_session", "classify_request")
-
-    graph.add_conditional_edges(
-        "classify_request",
-        lambda state: "blocked" if state.get("status") == "blocked" else "greeting" if state.get("status") == "greeting" else "continue",
-        {"blocked": "prepare_llm_context", "greeting": "prepare_llm_context", "continue": "safety_check"},
-    )
-
-    graph.add_conditional_edges(
-        "safety_check",
-        lambda state: "blocked" if state.get("status") == "blocked" else "continue",
-        {"blocked": "prepare_llm_context", "continue": "select_tools"},
-    )
-
-    graph.add_edge("select_tools", "execute_tools")
-    graph.add_edge("execute_tools", "prepare_llm_context")
-    graph.add_edge("prepare_llm_context", "generate_llm_answer")
-    graph.add_edge("generate_llm_answer", "save_session")
+    # Add edges
+    graph.add_edge(START, "agent")
+    
+    if tool_node:
+        # Standard tool calling loop
+        graph.add_conditional_edges(
+            "agent",
+            tools_condition,
+            {"tools": "tools", "__end__": "save_session"},
+        )
+        graph.add_edge("tools", "agent")
+    else:
+        # If no tools available, go straight to save
+        graph.add_edge("agent", "save_session")
+        
     graph.add_edge("save_session", END)
 
     return graph.compile(checkpointer=checkpointer)

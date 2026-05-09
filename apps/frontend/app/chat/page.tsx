@@ -1,8 +1,10 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, Suspense } from "react"
+import { useSearchParams } from "next/navigation"
 import { useSSEChat } from "@/hooks/use-sse-chat"
 import type { ChatEvent } from "@/lib/chat-events"
+import { api } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
@@ -17,10 +19,32 @@ interface Message {
   error?: string
 }
 
-export default function ChatPage() {
+function ChatContent() {
+  const searchParams = useSearchParams()
+  const initialSessionId = searchParams?.get("session_id")
+
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
   const { send, stop, isStreaming, sessionId, newSession } = useSSEChat()
+
+  useEffect(() => {
+    if (initialSessionId) {
+      api.getSession(initialSessionId).then(data => {
+        if (data && data.values && data.values.messages) {
+          const history: Message[] = data.values.messages.map((m: any) => ({
+            role: m.type === "human" ? "user" : "agent",
+            content: m.content || "",
+            nodes: m.tool_calls ? m.tool_calls.map((t: any) => `tool:${t.name}`) : [],
+          }))
+          // Only take human/ai messages, exclude raw tool outputs for cleaner UI
+          setMessages(history.filter(m => m.content || (m.nodes && m.nodes.length > 0)))
+          
+          // We need a way to set the session ID in the hook if it wasn't started by a send
+          // But useSSEChat will pick it up on the next send if we pass it manually
+        }
+      })
+    }
+  }, [initialSessionId])
 
   const handleSend = () => {
     const text = input.trim()
@@ -29,7 +53,13 @@ export default function ChatPage() {
     setMessages((prev) => [...prev, { role: "user", content: text }, { role: "agent", content: "", nodes: [] }])
 
     send(
-      { message: text, session_id: sessionId, provider: "gemini", model: "gemini-2.5-flash", allow_high_risk: false },
+      { 
+        message: text, 
+        session_id: sessionId || initialSessionId, 
+        provider: "gemini", 
+        model: "gemini-2.5-flash", 
+        allow_high_risk: false 
+      },
       (evt: ChatEvent) => {
         setMessages((prev) => {
           const updated = [...prev]
@@ -146,5 +176,13 @@ export default function ChatPage() {
         )}
       </div>
     </div>
+  )
+}
+
+export default function ChatPage() {
+  return (
+    <Suspense fallback={<div className="flex h-[calc(100vh-7rem)] items-center justify-center">Loading chat...</div>}>
+      <ChatContent />
+    </Suspense>
   )
 }

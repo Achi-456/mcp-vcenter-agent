@@ -11,3 +11,7 @@ pydantic-settings==2.3.0
 httpx==0.27.0
 structlog==24.2.0
 python-dotenv==1.0.1
+langchain-google-genai==2.0.1
+langchain-openai==0.2.14
+langchain-anthropic==0.3.1
+

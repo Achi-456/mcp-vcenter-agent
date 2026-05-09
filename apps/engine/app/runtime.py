@@ -25,6 +25,10 @@ class EngineRuntime:
             if self._checkpointer is None:
                 try:
                     dsn = get_settings().postgres_dsn
+                    
+                    from app.db.init_db import init_db
+                    await init_db()
+
                     cm = AsyncPostgresSaver.from_conn_string(dsn)
                     self._checkpointer_cm = cm
                     self._checkpointer = await cm.__aenter__()

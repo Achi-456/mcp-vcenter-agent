@@ -163,3 +163,56 @@ async def execute_tool(name: str, args: dict, *, run_id: str | None = None) -> d
 
     result["cached"] = False
     return result
+
+
+def get_langchain_tools() -> list[Any]:
+    """Convert registered ToolSpecs into LangChain tools."""
+    try:
+        from langchain_core.tools import StructuredTool
+        from pydantic import create_model, Field
+    except ImportError:
+        logger.warning("LangChain core not installed. Cannot create LangChain tools.")
+        return []
+
+    tools = []
+    for rt in _registry.values():
+        spec = rt.spec
+        if not spec.enabled or not spec.implemented:
+            continue
+
+        # Build dynamic pydantic model for args
+        fields = {}
+        schema = spec.input_schema.get("properties", {})
+        required = spec.input_schema.get("required", [])
+
+        for key, val in schema.items():
+            field_type = str
+            if val.get("type") == "boolean":
+                field_type = bool
+            elif val.get("type") == "integer":
+                field_type = int
+            
+            if key in required:
+                fields[key] = (field_type, Field(..., description=val.get("description", "")))
+            else:
+                fields[key] = (field_type | None, Field(default=None, description=val.get("description", "")))
+
+        ArgsSchema = create_model(f"{spec.name}_args", **fields)
+
+        # Create async closure to capture the correct name
+        async def _run_tool(tool_name=spec.name, **kwargs) -> str:
+            import json
+            res = await execute_tool(tool_name, kwargs)
+            # LLMs prefer string output from tools
+            return json.dumps(res, default=str)
+
+        tool = StructuredTool.from_function(
+            func=None,
+            coroutine=_run_tool,
+            name=spec.name,
+            description=spec.description,
+            args_schema=ArgsSchema,
+        )
+        tools.append(tool)
+
+    return tools
