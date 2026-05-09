@@ -1,32 +1,39 @@
 # Project Knowledge Summary
 
+This file is the short index for durable project knowledge. Detailed knowledge
+documents live under `docs/knowledge/`.
+
+## Current Platform
+
+- Project: vCenter Agentic Ops Platform
+- Runtime: RKE2 Kubernetes on-premises
+- Domain: `dclab.local`
+- Active rebuild branch: `rebuild/vcenter-agentic-platform`
+- Public UI: `https://infra-agent-console.dclab.local`
+- Public API: `https://api.dclab.local`
+- Argo CD: `https://argocd-agent.dclab.local`
+- Registry: `ghcr.io/achi-456`
+
 ## Resources
-| VM Name              | FQDN                             |      Example IP |        Gateway |             DNS |
-| -------------------- | -------------------------------- | --------------: | -------------: | --------------: |
-| agentic-cp-01        | agentic-cp-01.dclab.local        | 172.25.188.85 | 172.25.188.1 | 172.25.188.20 |
-| agentic-worker-01    | agentic-worker-01.dclab.local    | 172.25.188.86 | 172.25.188.1 | 172.25.188.20 |
-| agentic-worker-02    | agentic-worker-02.dclab.local    | 172.25.188.87 | 172.25.188.1 | 172.25.188.20 |
-| agentic-db-01        | agentic-db-01.dclab.local        | 172.25.188.88 | 172.25.188.1 | 172.25.188.20 |
-| agentic-utility-01   | agentic-utility-01.dclab.local   | 172.25.188.89 | 172.25.188.1 | 172.25.188.20 |
 
-## Repository Purpose
-This project is a Docker Compose based stack that serves a web UI/API through Nginx and a backend service (`vcenter-api`).
+| VM Name | FQDN | IP | Gateway | DNS |
+| --- | --- | ---: | ---: | ---: |
+| agentic-cp-01 | agentic-cp-01.dclab.local | 172.25.188.85 | 172.25.188.1 | 172.25.188.20 |
+| agentic-worker-01 | agentic-worker-01.dclab.local | 172.25.188.86 | 172.25.188.1 | 172.25.188.20 |
+| agentic-worker-02 | agentic-worker-02.dclab.local | 172.25.188.87 | 172.25.188.1 | 172.25.188.20 |
+| agentic-db-01 | agentic-db-01.dclab.local | 172.25.188.88 | 172.25.188.1 | 172.25.188.20 |
+| agentic-utility-01 | agentic-utility-01.dclab.local | 172.25.188.89 | 172.25.188.1 | 172.25.188.20 |
 
-## Runtime Shape
-- `docker compose up --build -d` is the primary startup path.
-- `docker compose ps` is used to verify running services.
-- `http://localhost/api/status` is the fastest health check endpoint.
+## Detailed Knowledge
 
-## Request Routing
-- `docker/nginx.conf` routes `/api/*` traffic to the backend (`vcenter-api`).
-- `http://localhost/` serves the frontend entrypoint.
+- [Clean rebuild baseline](docs/REBUILD-BASELINE.md)
+- [Phase 1.4 migration notes](docs/phase-1-4-migration.md)
+- [pyVmomi tool registry](docs/knowledge/pyvmomi-tool-registry.md)
 
-## Practical Verification Flow
-1. Build and start with Docker Compose.
-2. Confirm container status with `docker compose ps`.
-3. Check backend health with:
-   - `curl.exe -s http://localhost/api/status`
-4. Inspect targeted service logs if health check fails.
+## Knowledge Rules
 
-## Notes
-This branch intentionally contains only this knowledge summary file.
+- Do not commit secrets, API keys, kubeconfigs, tokens, passwords, or private SSH keys.
+- Store credentials in Kubernetes Secrets or local secure stores only.
+- Mark every tool by category and risk level before exposing it to the agent.
+- Enable read-only tools first; keep approval-required and destructive tools disabled until the approval workflow exists.
+
