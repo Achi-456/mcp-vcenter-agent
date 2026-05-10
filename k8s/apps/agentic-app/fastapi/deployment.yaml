@@ -22,7 +22,7 @@ spec:
         role: app-worker
       containers:
         - name: fastapi
-          image: ghcr.io/achi-456/agentic-fastapi:6683c2d8870a33862ae37c3870e5a2f9fe3b3d76
+          image: ghcr.io/achi-456/agentic-fastapi:e0daab4bea807d42bd9708dd01a7a3ed92c8a599
           ports:
             - containerPort: 8000
               name: http
