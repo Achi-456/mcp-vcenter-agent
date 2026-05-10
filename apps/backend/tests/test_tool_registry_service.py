@@ -38,6 +38,33 @@ def test_phase2_pyvmomi_tools_implemented() -> None:
     assert registry.get_tool("get_csi_va_check").implemented is False
 
 
+def test_phase5_diagnostic_tools_implemented_read_only() -> None:
+    registry = ToolRegistryService()
+    names = {
+        "govc_about",
+        "govc_vm_info",
+        "govc_host_info",
+        "govc_datastore_info",
+        "govc_events",
+        "govc_volume_ls",
+        "vsphere_rest_about",
+        "vsphere_rest_appliance_health",
+        "vsphere_rest_list_tag_categories",
+        "vsphere_rest_list_tags",
+        "vsphere_rest_list_attached_tags",
+        "vsphere_rest_list_content_libraries",
+        "vsphere_rest_list_library_items",
+        "vsphere_rest_list_recent_tasks",
+    }
+
+    for name in names:
+        tool = registry.get_tool(name)
+        assert tool.enabled is True
+        assert tool.implemented is True
+        assert tool.risk_level == "read_only"
+        assert tool.requires_approval is False
+
+
 def test_registry_categories_and_agents() -> None:
     registry = ToolRegistryService()
 

@@ -3,7 +3,7 @@ from typing import Any
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import audit, chat, connections, context, health, inventory, mcp, monitoring, sessions, tools
+from app.api.routes import audit, chat, connections, context, govc, health, inventory, mcp, monitoring, sessions, tools, vsphere_rest
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.services.health_service import HealthService
@@ -32,6 +32,8 @@ app.include_router(inventory.router)
 app.include_router(context.router)
 app.include_router(monitoring.router)
 app.include_router(mcp.router)
+app.include_router(govc.router)
+app.include_router(vsphere_rest.router)
 app.include_router(audit.router)
 app.include_router(sessions.router)
 app.include_router(chat.router)

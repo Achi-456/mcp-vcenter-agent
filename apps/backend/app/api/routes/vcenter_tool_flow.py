@@ -23,6 +23,20 @@ TTL_SECONDS = {
     "get_rke2_vms": 60,
     "get_active_alarms": 30,
     "get_recent_events": 30,
+    "govc_about": 300,
+    "govc_vm_info": 60,
+    "govc_host_info": 60,
+    "govc_datastore_info": 60,
+    "govc_events": 30,
+    "govc_volume_ls": 60,
+    "vsphere_rest_about": 300,
+    "vsphere_rest_appliance_health": 60,
+    "vsphere_rest_list_tag_categories": 300,
+    "vsphere_rest_list_tags": 300,
+    "vsphere_rest_list_attached_tags": 300,
+    "vsphere_rest_list_content_libraries": 300,
+    "vsphere_rest_list_library_items": 300,
+    "vsphere_rest_list_recent_tasks": 30,
 }
 
 
@@ -43,6 +57,7 @@ async def run_vcenter_tool(
     audit: AuditService,
     refresh: bool = False,
     inputs: dict[str, Any] | None = None,
+    source: str = "pyvmomi",
 ):
     try:
         tool = registry.get_tool(tool_name)
@@ -69,7 +84,7 @@ async def run_vcenter_tool(
     key = cache_key(tool_name, inputs)
     cached = await cache.get(key, refresh=refresh)
     if cached is not None:
-        return success_response(cached, source="pyvmomi", cached=True)
+        return success_response(cached, source=source, cached=True)
 
     try:
         data = await operation()
@@ -95,7 +110,7 @@ async def run_vcenter_tool(
         )
         return JSONResponse(
             status_code=500,
-            content=error_response("VCENTER_INVENTORY_ERROR", "vCenter inventory query failed."),
+            content=error_response("VCENTER_INVENTORY_ERROR", "vCenter diagnostic query failed."),
         )
 
     await cache.set(key, data, ttl_seconds=TTL_SECONDS.get(tool_name, 60))
@@ -105,4 +120,4 @@ async def run_vcenter_tool(
         risk_level=str(tool.risk_level),
         metadata={"input_summary": inputs or {}, "result_type": type(data).__name__},
     )
-    return success_response(data, source="pyvmomi", cached=False)
+    return success_response(data, source=source, cached=False)
