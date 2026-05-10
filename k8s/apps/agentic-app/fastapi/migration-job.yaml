@@ -24,7 +24,7 @@ spec:
         role: app-worker
       containers:
         - name: alembic
-          image: ghcr.io/achi-456/agentic-fastapi:98a0ad95fe689ce540d069553c5fd5adf78ec970
+          image: ghcr.io/achi-456/agentic-fastapi:458d526462618275aa7a4d5f5f76b537a00365d0
           command: ["alembic", "upgrade", "head"]
           envFrom:
             - secretRef:
