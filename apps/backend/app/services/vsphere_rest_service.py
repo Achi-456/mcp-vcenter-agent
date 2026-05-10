@@ -56,6 +56,7 @@ class VSphereRestService:
             params={
                 "result_spec.exclude_result": "true",
                 "result_spec.return_all": "false",
+                "filter_spec.services.1": "com.vmware.vcenter.vm",
                 "filter_spec.status.1": "RUNNING",
                 "filter_spec.status.2": "BLOCKED",
                 "filter_spec.status.3": "SUCCEEDED",
