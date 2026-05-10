@@ -3,9 +3,10 @@ from typing import Any
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import audit, chat, connections, context, health, inventory, monitoring, sessions, tools
+from app.api.routes import audit, chat, connections, context, health, inventory, mcp, monitoring, sessions, tools
 from app.core.config import get_settings
 from app.core.logging import configure_logging
+from app.services.health_service import HealthService
 
 settings = get_settings()
 configure_logging(settings.log_level)
@@ -30,6 +31,7 @@ app.include_router(connections.router)
 app.include_router(inventory.router)
 app.include_router(context.router)
 app.include_router(monitoring.router)
+app.include_router(mcp.router)
 app.include_router(audit.router)
 app.include_router(sessions.router)
 app.include_router(chat.router)
@@ -51,14 +53,15 @@ async def compatibility_ready() -> dict[str, Any]:
 
 @app.get("/api/v1/platform/status")
 async def platform_status() -> dict[str, Any]:
+    services = await HealthService().services()
     return {
         "status": "ok",
         "services": [
             {"name": "backend", "status": "ok", "detail": "FastAPI gateway online"},
-            {"name": "agent-engine", "status": "planned", "detail": "Phase rebuild placeholder"},
-            {"name": "mcp", "status": "planned", "detail": "MCP placeholder online after deploy"},
-            {"name": "postgres", "status": "external", "detail": "Use /api/v1/health/services"},
-            {"name": "redis", "status": "external", "detail": "Use /api/v1/health/services"},
+            {"name": "agent-engine", **services.get("agent_engine", {})},
+            {"name": "mcp", **services.get("mcp_gateway", {})},
+            {"name": "postgres", **services.get("postgres", {})},
+            {"name": "redis", **services.get("redis", {})},
         ],
     }
 

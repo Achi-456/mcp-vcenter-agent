@@ -115,11 +115,16 @@ TOOLS: tuple[ToolSpec, ...] = (
 
 
 class ToolRegistryService:
-    def __init__(self, tools: tuple[ToolSpec, ...] = TOOLS) -> None:
+    def __init__(self, tools: tuple[ToolSpec, ...] = TOOLS, extra_tools: list[ToolSpec] | None = None) -> None:
         self._tools = {tool.name: tool for tool in tools}
+        for tool in extra_tools or []:
+            self._tools[tool.name] = tool
 
-    def list_tools(self) -> list[ToolSpec]:
-        return sorted(self._tools.values(), key=lambda tool: tool.name)
+    def list_tools(self, extra_tools: list[ToolSpec] | None = None) -> list[ToolSpec]:
+        tools = dict(self._tools)
+        for tool in extra_tools or []:
+            tools[tool.name] = tool
+        return sorted(tools.values(), key=lambda tool: tool.name)
 
     def get_tool(self, tool_name: str) -> ToolSpec:
         tool = self._tools.get(tool_name)

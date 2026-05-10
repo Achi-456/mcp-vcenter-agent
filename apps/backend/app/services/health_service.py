@@ -3,6 +3,7 @@ import httpx
 from app.clients.redis_client import ping_redis
 from app.core.config import get_settings
 from app.db.session import ping_postgres
+from app.services.mcp_gateway_service import MCPGatewayService
 from app.services.secret_store import SecretStore
 
 
@@ -15,6 +16,7 @@ class HealthService:
             "redis": await self._redis_status(),
             "vcenter": await self._vcenter_status(),
             "agent_engine": await self._http_status(f"{settings.agent_engine_url}/health"),
+            "mcp_gateway": await self._mcp_status(),
         }
 
     async def _postgres_status(self) -> dict[str, str]:
@@ -63,3 +65,14 @@ class HealthService:
             return {"status": "degraded", "detail": f"{url} returned {response.status_code}"}
         except Exception as exc:
             return {"status": "degraded", "detail": str(exc)}
+
+    async def _mcp_status(self) -> dict[str, str]:
+        try:
+            status = await MCPGatewayService().status("default")
+        except Exception as exc:
+            return {"status": "degraded", "detail": str(exc)}
+        mapped_status = "ok" if status.status in {"healthy", "empty"} else status.status
+        return {
+            "status": mapped_status,
+            "detail": status.detail,
+        }

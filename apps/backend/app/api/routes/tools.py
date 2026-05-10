@@ -3,18 +3,23 @@ from typing import Any
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
-from app.api.deps import tool_registry_dep
+from app.api.deps import mcp_gateway_dep, tool_registry_dep
 from app.core.errors import ErrorCode
 from app.core.responses import error_response, success_response
 from app.services.tool_registry_service import ToolRegistryService
+from app.services.mcp_gateway_service import MCPGatewayService
 
 router = APIRouter(prefix="/api/v1/tools", tags=["tools"])
 
 
 @router.get("")
-async def list_tools(registry: ToolRegistryService = Depends(tool_registry_dep)) -> dict[str, Any]:
+async def list_tools(
+    registry: ToolRegistryService = Depends(tool_registry_dep),
+    mcp_gateway: MCPGatewayService = Depends(mcp_gateway_dep),
+) -> dict[str, Any]:
+    mcp_tools = (await mcp_gateway.discover("default")).tools
     return success_response(
-        [tool.model_dump(mode="json") for tool in registry.list_tools()],
+        [tool.model_dump(mode="json") for tool in registry.list_tools(extra_tools=mcp_tools)],
         source="tool_registry",
     )
 

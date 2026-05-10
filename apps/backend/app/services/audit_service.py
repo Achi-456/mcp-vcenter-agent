@@ -46,5 +46,52 @@ class AuditService:
             )
         )
 
+    async def record_mcp_discovery(
+        self,
+        *,
+        server_id: str,
+        status: str,
+        tool_count: int = 0,
+        resource_count: int = 0,
+        prompt_count: int = 0,
+        error_code: str | None = None,
+    ) -> Any | None:
+        return await self.record(
+            AuditEventCreate(
+                event_type="mcp_discovery",
+                target=server_id,
+                action="discover",
+                status=status,
+                error_code=error_code,
+                metadata={
+                    "server_id": server_id,
+                    "tool_count": tool_count,
+                    "resource_count": resource_count,
+                    "prompt_count": prompt_count,
+                },
+            )
+        )
+
+    async def record_mcp_tool_attempt(
+        self,
+        *,
+        tool_name: str,
+        status: str,
+        risk_level: str | None = None,
+        error_code: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> Any | None:
+        return await self.record(
+            AuditEventCreate(
+                event_type="mcp_tool_call",
+                target=tool_name,
+                action="policy_decision",
+                status=status,
+                error_code=error_code,
+                risk_level=risk_level,
+                metadata=metadata or {},
+            )
+        )
+
     async def recent(self, *, limit: int = 50) -> list[Any]:
         return await self.repository.recent(limit=limit)

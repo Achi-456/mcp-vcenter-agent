@@ -25,6 +25,7 @@ class ToolSpec(BaseModel):
     requires_approval: bool
     input_schema: dict[str, Any] = Field(default_factory=dict)
     output_schema: dict[str, Any] = Field(default_factory=dict)
+    mcp_server: str | None = None
 
 
 class PolicyDecision(BaseModel):

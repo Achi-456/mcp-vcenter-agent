@@ -2,6 +2,8 @@ from app.core.config import Settings, get_settings
 from app.services.audit_service import AuditService
 from app.services.cache_service import CacheService
 from app.services.health_service import HealthService
+from app.services.mcp_gateway_service import MCPGatewayService
+from app.services.mcp_server_registry_service import MCPServerRegistryService
 from app.services.policy_service import PolicyService
 from app.services.secret_store import SecretStore
 from app.services.tool_registry_service import ToolRegistryService
@@ -36,6 +38,14 @@ def secret_store_dep() -> SecretStore:
 
 def health_dep() -> HealthService:
     return HealthService()
+
+
+def mcp_server_registry_dep() -> MCPServerRegistryService:
+    return MCPServerRegistryService()
+
+
+def mcp_gateway_dep() -> MCPGatewayService:
+    return MCPGatewayService()
 
 
 def vcenter_session_dep() -> VCenterSession:
