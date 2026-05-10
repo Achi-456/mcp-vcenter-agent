@@ -5,6 +5,26 @@ from pyVmomi import vim
 from app.services.vcenter_session import VCenterSession, get_vcenter_session
 
 
+SUPPORTED_RECENT_EVENT_TYPES = [
+    "AlarmStatusChangedEvent",
+    "DatastoreCreatedEvent",
+    "DatastoreDestroyedEvent",
+    "HostConnectedEvent",
+    "HostConnectionLostEvent",
+    "HostDisconnectedEvent",
+    "TaskEvent",
+    "UserLoginSessionEvent",
+    "UserLogoutSessionEvent",
+    "VmCreatedEvent",
+    "VmPoweredOffEvent",
+    "VmPoweredOnEvent",
+    "VmReconfiguredEvent",
+    "VmRemovedEvent",
+    "VmRenamedEvent",
+    "VmSuspendedEvent",
+]
+
+
 def normalize_alarm(alarm_state: Any) -> dict[str, Any]:
     alarm = getattr(alarm_state, "alarm", None)
     entity = getattr(alarm_state, "entity", None)
@@ -44,6 +64,10 @@ class VCenterMonitoringService:
     async def get_recent_events(self, *, limit: int = 50) -> list[dict[str, Any]]:
         def collect(_si: Any, content: Any) -> list[dict[str, Any]]:
             event_filter = vim.event.EventFilterSpec()
+            # Some vCenter event types are not deserializable by pyVmomi 8.0 U3.
+            # Limit Phase 2 to common infrastructure events instead of failing
+            # the whole recent-events endpoint on one unsupported event class.
+            event_filter.eventTypeId = SUPPORTED_RECENT_EVENT_TYPES
             events = content.eventManager.QueryEvents(event_filter) or []
             return [normalize_event(event) for event in events[-limit:]]
 
