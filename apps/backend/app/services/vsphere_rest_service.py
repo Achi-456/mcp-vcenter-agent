@@ -50,7 +50,18 @@ class VSphereRestService:
         return await self._get_result(f"/rest/com/vmware/content/library/item?library_id={library_id}")
 
     async def list_recent_tasks(self) -> dict[str, Any]:
-        data = await self._request("GET", "/rest/cis/tasks", params={"filter_spec": "{}"})
+        data = await self._request(
+            "GET",
+            "/rest/cis/tasks",
+            params={
+                "result_spec.exclude_result": "true",
+                "result_spec.return_all": "false",
+                "filter_spec.status.1": "RUNNING",
+                "filter_spec.status.2": "BLOCKED",
+                "filter_spec.status.3": "SUCCEEDED",
+                "filter_spec.status.4": "FAILED",
+            },
+        )
         return {"endpoint": "/rest/cis/tasks", "data": data}
 
     async def _get_result(self, endpoint: str) -> dict[str, Any]:
