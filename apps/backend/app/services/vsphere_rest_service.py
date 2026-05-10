@@ -50,7 +50,8 @@ class VSphereRestService:
         return await self._get_result(f"/rest/com/vmware/content/library/item?library_id={library_id}")
 
     async def list_recent_tasks(self) -> dict[str, Any]:
-        return await self._get_result("/rest/cis/tasks")
+        data = await self._request("GET", "/rest/cis/tasks", params={"filter_spec": "{}"})
+        return {"endpoint": "/rest/cis/tasks", "data": data}
 
     async def _get_result(self, endpoint: str) -> dict[str, Any]:
         data = await self._request("GET", endpoint)
@@ -60,14 +61,21 @@ class VSphereRestService:
         data = await self._request("POST", endpoint, json=payload)
         return {"endpoint": endpoint, "data": data}
 
-    async def _request(self, method: str, endpoint: str, *, json: dict[str, Any] | None = None) -> Any:
+    async def _request(
+        self,
+        method: str,
+        endpoint: str,
+        *,
+        json: dict[str, Any] | None = None,
+        params: dict[str, str] | None = None,
+    ) -> Any:
         credentials = await self._get_credentials()
         session_id = await self._get_session(credentials)
-        response = await self._send(credentials, method, endpoint, session_id=session_id, json=json)
+        response = await self._send(credentials, method, endpoint, session_id=session_id, json=json, params=params)
         if response.status_code == 401:
             self._session_id = None
             session_id = await self._login(credentials)
-            response = await self._send(credentials, method, endpoint, session_id=session_id, json=json)
+            response = await self._send(credentials, method, endpoint, session_id=session_id, json=json, params=params)
         if response.status_code in {401, 403}:
             raise VCenterError(ErrorCode.VCENTER_AUTH_FAILED, "vSphere REST authentication failed.")
         if response.status_code == 404:
@@ -96,13 +104,20 @@ class VSphereRestService:
         *,
         session_id: str,
         json: dict[str, Any] | None = None,
+        params: dict[str, str] | None = None,
     ) -> httpx.Response:
         async with self.client_factory(
             base_url=f"https://{credentials.host}:{credentials.port}",
             verify=credentials.verify_ssl,
             timeout=self.timeout_seconds,
         ) as client:
-            return await client.request(method, endpoint, headers={"vmware-api-session-id": session_id}, json=json)
+            return await client.request(
+                method,
+                endpoint,
+                headers={"vmware-api-session-id": session_id},
+                json=json,
+                params=params,
+            )
 
     async def _get_session(self, credentials: VCenterCredentials) -> str:
         if self._session_id:

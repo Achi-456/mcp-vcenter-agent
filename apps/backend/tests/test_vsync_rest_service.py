@@ -42,8 +42,8 @@ class FakeClient:
         self.requests.append(("POST", endpoint, auth, json))
         return self.responses.pop(0)
 
-    async def request(self, method, endpoint, headers=None, json=None):
-        self.requests.append((method, endpoint, headers, json))
+    async def request(self, method, endpoint, headers=None, json=None, params=None):
+        self.requests.append((method, endpoint, headers, json, params))
         return self.responses.pop(0)
 
 
