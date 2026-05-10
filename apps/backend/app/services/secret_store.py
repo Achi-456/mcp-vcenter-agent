@@ -50,6 +50,29 @@ class SecretStore:
         except Exception:
             return []
 
+    async def read_values(
+        self,
+        secret_name: str,
+        *,
+        namespace: str | None = None,
+        allowed_keys: set[str] | None = None,
+    ) -> dict[str, str]:
+        api = self._load_client()
+        if api is None:
+            return {}
+        ns = namespace or get_settings().k8s_namespace
+        try:
+            secret = api.read_namespaced_secret(secret_name, ns)
+        except Exception:
+            return {}
+
+        values: dict[str, str] = {}
+        for key, encoded in (secret.data or {}).items():
+            if allowed_keys is not None and key not in allowed_keys:
+                continue
+            values[key] = base64.b64decode(encoded).decode()
+        return values
+
     async def write(
         self,
         secret_name: str,

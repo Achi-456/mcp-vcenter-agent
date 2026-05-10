@@ -5,6 +5,9 @@ from app.services.health_service import HealthService
 from app.services.policy_service import PolicyService
 from app.services.secret_store import SecretStore
 from app.services.tool_registry_service import ToolRegistryService
+from app.services.vcenter_inventory_service import VCenterInventoryService
+from app.services.vcenter_monitoring_service import VCenterMonitoringService
+from app.services.vcenter_session import VCenterSession, get_vcenter_session
 
 
 def settings_dep() -> Settings:
@@ -33,3 +36,15 @@ def secret_store_dep() -> SecretStore:
 
 def health_dep() -> HealthService:
     return HealthService()
+
+
+def vcenter_session_dep() -> VCenterSession:
+    return get_vcenter_session()
+
+
+def vcenter_inventory_dep() -> VCenterInventoryService:
+    return VCenterInventoryService()
+
+
+def vcenter_monitoring_dep() -> VCenterMonitoringService:
+    return VCenterMonitoringService()

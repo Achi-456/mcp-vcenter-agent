@@ -34,15 +34,16 @@ def _tool(
 
 
 TOOLS: tuple[ToolSpec, ...] = (
-    _tool("get_environment_overview", "Environment Overview", "Summarize vCenter environment health."),
-    _tool("list_vms", "List VMs", "List virtual machines."),
-    _tool("get_vm_details", "Get VM Details", "Get details for a specific virtual machine."),
-    _tool("list_hosts", "List Hosts", "List ESXi hosts."),
-    _tool("get_host_details", "Get Host Details", "Get details for a specific ESXi host."),
-    _tool("list_datastores", "List Datastores", "List vCenter datastores."),
-    _tool("get_datastore_health", "Datastore Health", "Check datastore usage and accessibility."),
-    _tool("get_active_alarms", "Active Alarms", "List active vCenter alarms.", category="Monitoring"),
-    _tool("get_recent_events", "Recent Events", "List recent vCenter events.", category="Monitoring"),
+    _tool("get_environment_overview", "Environment Overview", "Summarize vCenter environment health.", implemented=True),
+    _tool("list_vms", "List VMs", "List virtual machines.", implemented=True),
+    _tool("get_vm_details", "Get VM Details", "Get details for a specific virtual machine.", implemented=True),
+    _tool("list_hosts", "List Hosts", "List ESXi hosts.", implemented=True),
+    _tool("get_host_details", "Get Host Details", "Get details for a specific ESXi host.", implemented=True),
+    _tool("list_datastores", "List Datastores", "List vCenter datastores.", implemented=True),
+    _tool("get_datastore_health", "Datastore Health", "Check datastore usage and accessibility.", implemented=True),
+    _tool("get_active_alarms", "Active Alarms", "List active vCenter alarms.", category="Monitoring", implemented=True),
+    _tool("get_recent_events", "Recent Events", "List recent vCenter events.", category="Monitoring", implemented=True),
+    _tool("get_rke2_vms", "RKE2 VMs", "Detect RKE2 and AgenticOps platform VMs.", category="Context", implemented=True),
     _tool("govc_vm_info", "govc VM Info", "Read VM info through govc.", backend="govc"),
     _tool("govc_host_info", "govc Host Info", "Read host info through govc.", backend="govc"),
     _tool(

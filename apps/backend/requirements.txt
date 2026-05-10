@@ -13,3 +13,4 @@ redis==5.2.1
 kubernetes==31.0.0
 pytest==8.3.4
 pytest-asyncio==0.25.0
+pyvmomi==8.0.3.0.1

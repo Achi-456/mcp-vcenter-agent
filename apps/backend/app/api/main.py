@@ -7,7 +7,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
-from app.api.routes import audit, connections, health, sessions, tools
+from app.api.routes import audit, connections, context, health, inventory, monitoring, sessions, tools
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.schemas.chat import ChatRequest
@@ -32,6 +32,9 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(tools.router)
 app.include_router(connections.router)
+app.include_router(inventory.router)
+app.include_router(context.router)
+app.include_router(monitoring.router)
 app.include_router(audit.router)
 app.include_router(sessions.router)
 
