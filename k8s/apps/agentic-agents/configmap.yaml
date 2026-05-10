@@ -6,6 +6,7 @@ metadata:
 data:
   APP_ENV: "production"
   LOG_LEVEL: "INFO"
+  BACKEND_URL: "http://fastapi.agentic-app.svc.cluster.local:8000"
   AGENT_MAX_TURNS: "20"
   AGENT_SUMMARIZE_EVERY: "5"
 

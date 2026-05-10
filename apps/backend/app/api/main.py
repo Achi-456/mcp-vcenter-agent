@@ -1,16 +1,11 @@
-import asyncio
-import json
-import uuid
 from typing import Any
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
 
-from app.api.routes import audit, connections, context, health, inventory, monitoring, sessions, tools
+from app.api.routes import audit, chat, connections, context, health, inventory, monitoring, sessions, tools
 from app.core.config import get_settings
 from app.core.logging import configure_logging
-from app.schemas.chat import ChatRequest
 
 settings = get_settings()
 configure_logging(settings.log_level)
@@ -37,6 +32,7 @@ app.include_router(context.router)
 app.include_router(monitoring.router)
 app.include_router(audit.router)
 app.include_router(sessions.router)
+app.include_router(chat.router)
 
 
 @app.get("/health")
@@ -65,36 +61,6 @@ async def platform_status() -> dict[str, Any]:
             {"name": "redis", "status": "external", "detail": "Use /api/v1/health/services"},
         ],
     }
-
-
-@app.post("/api/v1/chat/stream")
-@app.post("/api/v1/agent/run")
-async def chat_stream(request: ChatRequest) -> StreamingResponse:
-    session_id = request.session_id or str(uuid.uuid4())
-
-    async def events():
-        payloads = [
-            {"type": "session", "session_id": session_id},
-            {
-                "type": "node",
-                "node": "gateway",
-                "output": {"message": request.message, "status": "received"},
-            },
-            {
-                "type": "final",
-                "content": "Hi, I'm your vCenter Agent. How can I help you with your infrastructure today?",
-            },
-            {"type": "done"},
-        ]
-        for payload in payloads:
-            yield f"data: {json.dumps(payload)}\n\n"
-            await asyncio.sleep(0.05)
-
-    return StreamingResponse(
-        events(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
 
 
 @app.websocket("/ws")

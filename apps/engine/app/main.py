@@ -1,19 +1,17 @@
-import asyncio
 import json
 import uuid
-from typing import Any
+from typing import Any, AsyncIterator
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, Field
+
+from app.clients.backend_client import backend_health
+from app.graph.events import event_payload, sse
+from app.graph.workflow import get_graph
+from app.schemas.run import RunRequest
 
 
-class RunRequest(BaseModel):
-    message: str = Field(min_length=1)
-    session_id: str | None = None
-
-
-app = FastAPI(title="vCenter Agent Engine", version="0.1.0-rebuild")
+app = FastAPI(title="vCenter Agent Engine", version="0.3.0-langgraph")
 
 
 @app.get("/health")
@@ -23,13 +21,13 @@ async def health() -> dict[str, str]:
 
 @app.get("/ready")
 async def ready() -> JSONResponse:
+    backend_ok = await backend_health()
     return JSONResponse(
         {
-            "status": "ready",
+            "status": "ready" if backend_ok else "degraded",
             "engine": "ok",
-            "langgraph": "placeholder",
-            "db": "not-configured-in-baseline",
-            "redis": "not-configured-in-baseline",
+            "langgraph": "ok",
+            "backend": "ok" if backend_ok else "degraded",
         }
     )
 
@@ -38,25 +36,80 @@ async def ready() -> JSONResponse:
 @app.post("/api/v1/agent/run")
 async def run_agent(request: RunRequest) -> StreamingResponse:
     session_id = request.session_id or str(uuid.uuid4())
+    run_id = str(uuid.uuid4())
 
-    async def events():
-        for payload in (
-            {"type": "session", "session_id": session_id},
-            {"type": "node", "node": "load_context", "output": {"status": "baseline"}},
-            {
-                "type": "node",
-                "node": "echo_node",
-                "output": {
-                    "final_answer": (
-                        "Agent engine rebuild baseline is online. "
-                        f"Message received: {request.message}"
+    async def events() -> AsyncIterator[str]:
+        yield sse(event_payload("start", session_id=session_id, run_id=run_id))
+        initial_state = {
+            "session_id": session_id,
+            "run_id": run_id,
+            "user_message": request.message,
+            "errors": [],
+            "findings": [],
+            "tool_input": {},
+        }
+        try:
+            final_state = await get_graph().ainvoke(initial_state)
+        except Exception as exc:
+            yield sse(event_payload("error", error_code="INTERNAL_ERROR", message=str(exc)))
+            yield sse(event_payload("done"))
+            return
+
+        yield sse(
+            event_payload(
+                "intent",
+                domain=final_state.get("domain"),
+                task_type=final_state.get("task_type"),
+                object_type=final_state.get("object_type"),
+                entity=final_state.get("entity"),
+                tool=final_state.get("tool_name"),
+                confidence=1.0,
+            )
+        )
+        yield sse(
+            event_payload(
+                "safety_check",
+                risk_level=final_state.get("risk_level", "read_only"),
+                allowed=final_state.get("allowed", True),
+                error_code=final_state.get("error_code"),
+                message=final_state.get("block_reason"),
+            )
+        )
+
+        if final_state.get("selected_agent"):
+            yield sse(event_payload("agent_start", agent=final_state["selected_agent"]))
+
+        if final_state.get("allowed", True) and final_state.get("tool_name"):
+            yield sse(
+                event_payload(
+                    "tool_call",
+                    tool=final_state.get("tool_name"),
+                    risk_level=final_state.get("risk_level", "read_only"),
+                    input_summary=_input_summary(final_state.get("tool_input") or {}),
+                )
+            )
+            tool_response = final_state.get("tool_response")
+            ok = tool_response.get("ok", True) if isinstance(tool_response, dict) else True
+            yield sse(
+                event_payload(
+                    "tool_result",
+                    tool=final_state.get("tool_name"),
+                    ok=ok,
+                    output_summary=_tool_summary(tool_response),
+                )
+            )
+            if isinstance(tool_response, dict) and tool_response.get("ok") is False:
+                yield sse(
+                    event_payload(
+                        "error",
+                        error_code=tool_response.get("error_code", "BACKEND_ERROR"),
+                        message=tool_response.get("message", "Backend tool failed."),
                     )
-                },
-            },
-            {"type": "done"},
-        ):
-            yield f"data: {json.dumps(payload)}\n\n"
-            await asyncio.sleep(0.05)
+                )
+
+        yield sse(event_payload("validation", **(final_state.get("validation") or {"status": "passed"})))
+        yield sse(event_payload("final", content=final_state.get("final_answer", "")))
+        yield sse(event_payload("done"))
 
     return StreamingResponse(
         events(),
@@ -72,6 +125,22 @@ async def get_session(session_id: str) -> dict[str, Any]:
         "found": False,
         "values": {},
         "next": [],
-        "metadata": {"mode": "clean-rebuild-baseline"},
+        "metadata": {"mode": "langgraph-phase-3-no-checkpointer"},
     }
 
+
+def _input_summary(tool_input: dict[str, Any]) -> str:
+    if not tool_input:
+        return "no arguments"
+    return ", ".join(f"{key}={value}" for key, value in tool_input.items())
+
+
+def _tool_summary(tool_response: Any) -> str:
+    if isinstance(tool_response, dict) and tool_response.get("ok") is False:
+        return f"{tool_response.get('error_code')}: {tool_response.get('message')}"
+    data = tool_response.get("data") if isinstance(tool_response, dict) else tool_response
+    if isinstance(data, list):
+        return f"{len(data)} item(s) returned"
+    if isinstance(data, dict):
+        return json.dumps({key: data[key] for key in list(data.keys())[:5]}, default=str)
+    return "result returned"

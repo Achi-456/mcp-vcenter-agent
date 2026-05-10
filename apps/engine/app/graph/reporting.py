@@ -1,0 +1,115 @@
+from __future__ import annotations
+
+from typing import Any
+
+from app.graph.state import AgentState
+
+
+def validate_state(state: AgentState) -> dict[str, Any]:
+    errors: list[str] = []
+    if state.get("object_type") == "host" and state.get("tool_name") == "get_vm_details":
+        errors.append("Host request was routed to VM tool.")
+    if state.get("object_type") == "vm" and state.get("tool_name") == "get_host_details":
+        errors.append("VM request was routed to host tool.")
+    tool_response = state.get("tool_response")
+    if isinstance(tool_response, dict) and tool_response.get("ok") is False:
+        errors.append(str(tool_response.get("error_code") or "BACKEND_ERROR"))
+    return {"status": "failed" if errors else "passed", "errors": errors}
+
+
+def format_final_answer(state: AgentState) -> str:
+    if not state.get("allowed", True):
+        return (
+            f"Request blocked by safety policy: {state.get('block_reason') or state.get('error_code')}.\n\n"
+            "No action was taken."
+        )
+
+    if state.get("task_type") == "greeting":
+        return "Hi, I'm your vCenter Agent. How can I help you with your infrastructure today?\n\nNo action was taken."
+
+    if state.get("task_type") == "unsupported":
+        return (
+            "I can help with read-only vCenter checks such as VM details, host details, datastore "
+            "health, active alarms, recent events, RKE2 VMs, and tool listing.\n\nNo action was taken."
+        )
+
+    tool_response = state.get("tool_response")
+    if isinstance(tool_response, dict) and tool_response.get("ok") is False:
+        return (
+            f"Backend returned `{tool_response.get('error_code', 'ERROR')}`: "
+            f"{tool_response.get('message', 'The request failed.')}.\n\nNo action was taken."
+        )
+
+    data = tool_response.get("data") if isinstance(tool_response, dict) else tool_response
+    task_type = state.get("task_type")
+    tool_name = state.get("tool_name")
+
+    if tool_name in {"get_vm_details", "get_host_details"} and isinstance(data, dict):
+        return f"{_dict_table(data)}\n\nNo action was taken."
+
+    if task_type == "list_tools" and isinstance(data, list):
+        rows = [
+            {
+                "name": item.get("name"),
+                "risk": item.get("risk_level"),
+                "enabled": item.get("enabled"),
+                "implemented": item.get("implemented"),
+            }
+            for item in data[:25]
+            if isinstance(item, dict)
+        ]
+        return f"Available tool metadata:\n\n{_list_table(rows)}\n\nNo action was taken."
+
+    if isinstance(data, list):
+        title = {
+            "list_vms": "VMs",
+            "list_hosts": "Hosts",
+            "list_datastores": "Datastores",
+            "get_datastore_health": "Datastore Health",
+            "get_active_alarms": "Active Alarms",
+            "get_recent_events": "Recent Events",
+            "get_rke2_vms": "RKE2 VMs",
+        }.get(str(tool_name), "Results")
+        return f"{title}: {len(data)} item(s)\n\n{_list_table(data[:10])}\n\nNo action was taken."
+
+    if isinstance(data, dict):
+        return f"{_dict_table(data)}\n\nNo action was taken."
+
+    return "Request completed.\n\nNo action was taken."
+
+
+def summarize_tool_output(tool_response: Any) -> str:
+    if isinstance(tool_response, dict) and tool_response.get("ok") is False:
+        return f"{tool_response.get('error_code')}: {tool_response.get('message')}"
+    data = tool_response.get("data") if isinstance(tool_response, dict) else tool_response
+    if isinstance(data, list):
+        return f"{len(data)} item(s) returned"
+    if isinstance(data, dict):
+        name = data.get("name") or data.get("status") or data.get("summary")
+        return str(name or f"{len(data)} field(s) returned")
+    return "Result returned"
+
+
+def _dict_table(data: dict[str, Any]) -> str:
+    rows = []
+    for key, value in list(data.items())[:16]:
+        if isinstance(value, (dict, list)):
+            continue
+        rows.append(f"| {key} | {value} |")
+    if not rows:
+        return "No displayable scalar fields returned."
+    return "| Field | Value |\n| --- | --- |\n" + "\n".join(rows)
+
+
+def _list_table(rows: list[dict[str, Any]]) -> str:
+    if not rows:
+        return "No rows returned."
+    columns = [key for key in rows[0].keys() if not isinstance(rows[0].get(key), (dict, list))][:6]
+    if not columns:
+        return "Rows returned, but no scalar fields are available for table display."
+    header = "| " + " | ".join(columns) + " |"
+    sep = "| " + " | ".join("---" for _ in columns) + " |"
+    body = []
+    for row in rows:
+        body.append("| " + " | ".join(str(row.get(column, "")) for column in columns) + " |")
+    return "\n".join([header, sep, *body])
