@@ -12,7 +12,6 @@ SUPPORTED_RECENT_EVENT_TYPES = [
     "HostConnectedEvent",
     "HostConnectionLostEvent",
     "HostDisconnectedEvent",
-    "TaskEvent",
     "UserLoginSessionEvent",
     "UserLogoutSessionEvent",
     "VmCreatedEvent",
@@ -64,9 +63,9 @@ class VCenterMonitoringService:
     async def get_recent_events(self, *, limit: int = 50) -> list[dict[str, Any]]:
         def collect(_si: Any, content: Any) -> list[dict[str, Any]]:
             event_filter = vim.event.EventFilterSpec()
-            # Some vCenter event types are not deserializable by pyVmomi 8.0 U3.
-            # Limit Phase 2 to common infrastructure events instead of failing
-            # the whole recent-events endpoint on one unsupported event class.
+            # Some broad task events can reference vCenter objects not
+            # deserializable by pyVmomi 8.0 U3, such as ContentLibrary.
+            # Limit Phase 2 to concrete infrastructure event classes.
             event_filter.eventTypeId = SUPPORTED_RECENT_EVENT_TYPES
             events = content.eventManager.QueryEvents(event_filter) or []
             return [normalize_event(event) for event in events[-limit:]]
