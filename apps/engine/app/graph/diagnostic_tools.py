@@ -7,6 +7,14 @@ def tool_call(tool_name: str, endpoint: str, tool_input: dict[str, Any] | None =
     return {"tool_name": tool_name, "tool_endpoint": endpoint, "tool_input": tool_input or {}}
 
 
+def mcp_status_endpoint(tool_name: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    return tool_call(
+        tool_name,
+        f"/api/v1/internal/mcp/tools/{tool_name}/call",
+        payload,
+    )
+
+
 def govc_endpoint(tool_name: str, entity: str | None = None) -> dict[str, Any]:
     mapping = {
         "govc_about": ("/api/v1/govc/about", {}),

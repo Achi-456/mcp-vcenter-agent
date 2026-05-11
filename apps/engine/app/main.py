@@ -161,6 +161,8 @@ async def get_session(session_id: str) -> dict[str, Any]:
 def _input_summary(tool_input: dict[str, Any]) -> str:
     if not tool_input:
         return "no arguments"
+    if "text" in tool_input:
+        return f"text_length={len(str(tool_input.get('text', '')))}"
     return ", ".join(f"{key}={value}" for key, value in tool_input.items())
 
 

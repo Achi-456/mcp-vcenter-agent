@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.graph.diagnostic_tools import compare_calls, govc_endpoint, health_summary_calls, rest_endpoint
+from app.graph.diagnostic_tools import compare_calls, govc_endpoint, health_summary_calls, mcp_status_endpoint, rest_endpoint
 from app.graph.entity_extraction import HOST_RE, extract_entity, extract_value
 from app.graph.state import AgentState
 
@@ -50,13 +50,21 @@ DESTRUCTIVE_PATTERNS: tuple[tuple[str, str], ...] = (
     ("delete cns volume", "delete_cns_volume"),
     ("raw govc command", "raw_govc_command"),
     ("govc command", "raw_govc_command"),
+    ("use mcp to run", "mcp_external_tool"),
     ("execute command", "execute_command"),
     ("shell command", "shell_command"),
+    ("mcp command", "mcp_command"),
+    ("kubectl", "kubectl_command"),
     ("kubectl apply", "kubectl_apply"),
     ("kubectl delete", "kubectl_delete"),
     ("kubectl patch", "kubectl_patch"),
 )
 V2_PATTERNS = ("csi", "kubernetes", "pvc", "pv ", "persistentvolume", "govmomi", "pbm", "cns")
+MCP_ALLOWED_TOOLS = {
+    "mcp.default.server_info",
+    "mcp.default.server_time",
+    "mcp.default.echo_text",
+}
 
 
 @dataclass(frozen=True)
@@ -79,6 +87,10 @@ def classify_intent(message: str) -> Intent:
     blocked = _classify_blocked(text, lowered)
     if blocked:
         return blocked
+
+    mcp_intent = _classify_mcp_status(text, lowered)
+    if mcp_intent:
+        return mcp_intent
 
     if any(marker in f" {lowered} " for marker in V2_PATTERNS):
         return Intent("planned_v2", "planned_v2", None, None, "read_only", None, None, {})
@@ -131,6 +143,75 @@ def _classify_blocked(message: str, lowered: str) -> Intent | None:
         if marker in lowered:
             return Intent("vcenter", "blocked_action", None, entity, "destructive", tool_name, None, {})
     return None
+
+
+def _classify_mcp_status(message: str, lowered: str) -> Intent | None:
+    if "mcp" not in lowered:
+        return None
+
+    if "echo" in lowered:
+        echo_text = _extract_mcp_echo_text(message, lowered)
+        if echo_text is None:
+            return Intent("mcp", "mcp_missing_input", "echo", None, "read_only", None, None, {})
+        if len(echo_text) > 512:
+            return Intent("mcp", "mcp_input_too_large", "echo", None, "read_only", None, None, {})
+        call = mcp_status_endpoint("mcp.default.echo_text", {"text": echo_text})
+        return _intent_from_call(domain="mcp", task_type="mcp_echo_text", object_type="mcp", entity=None, call=call)
+
+    if _is_arbitrary_mcp_request(lowered):
+        return Intent("mcp", "mcp_unsupported_tool", "mcp", None, "read_only", None, None, {})
+
+    if "time" in lowered:
+        call = mcp_status_endpoint("mcp.default.server_time")
+        return _intent_from_call(domain="mcp", task_type="mcp_server_time", object_type="mcp", entity=None, call=call)
+
+    if (
+        "test mcp" in lowered
+        or "mcp status" in lowered
+        or "mcp server info" in lowered
+        or "mcp server working" in lowered
+        or "check mcp status" in lowered
+        or lowered.strip() == "mcp status"
+    ):
+        call = mcp_status_endpoint("mcp.default.server_info")
+        return _intent_from_call(domain="mcp", task_type="mcp_server_info", object_type="mcp", entity=None, call=call)
+
+    return Intent("mcp", "mcp_unsupported_tool", "mcp", None, "read_only", None, None, {})
+
+
+def _extract_mcp_echo_text(message: str, lowered: str) -> str | None:
+    patterns = ("echo mcp status", "test mcp echo", "mcp echo")
+    for pattern in patterns:
+        index = lowered.find(pattern)
+        if index >= 0:
+            value = message[index + len(pattern) :].strip()
+            return value or None
+    return None
+
+
+def _is_arbitrary_mcp_request(lowered: str) -> bool:
+    if "mcp.default." in lowered:
+        return not any(tool_name in lowered for tool_name in MCP_ALLOWED_TOOLS)
+    return any(
+        marker in lowered
+        for marker in (
+            "call mcp tool",
+            "run mcp tool",
+            "execute mcp tool",
+            "execute mcp",
+            "run mcp",
+            "use mcp to run",
+            "use mcp to delete",
+            "use mcp to remove",
+            "use mcp to destroy",
+            "use mcp to power",
+            "use mcp to restart",
+            "use mcp to migrate",
+            "use mcp to update",
+            "use mcp to patch",
+            "use mcp to create",
+        )
+    )
 
 
 def _is_health_summary(lowered: str) -> bool:

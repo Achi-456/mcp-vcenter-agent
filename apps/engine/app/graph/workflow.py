@@ -18,6 +18,8 @@ def route_by_intent(state: AgentState) -> Literal["blocked_agent", "tools_agent"
         return "general_agent"
     if state.get("task_type") == "list_tools":
         return "tools_agent"
+    if str(state.get("task_type") or "").startswith("mcp_"):
+        return "vcenter_readonly_agent"
     return "vcenter_readonly_agent"
 
 
@@ -58,7 +60,7 @@ async def _call_backend(state: AgentState, selected_agent: str) -> dict:
             if not endpoint:
                 continue
             try:
-                response = await BackendClient().get(endpoint, params=call.get("tool_input") or None)
+                response = await _execute_tool_call(call)
             except BackendClientError as exc:
                 response = {"ok": False, "error_code": exc.error_code, "message": exc.message, "details": {}}
             responses.append({**call, "response": response})
@@ -74,7 +76,13 @@ async def _call_backend(state: AgentState, selected_agent: str) -> dict:
     if not endpoint:
         return {"selected_agent": selected_agent, "tool_response": None, "findings": []}
     try:
-        response = await BackendClient().get(endpoint, params=state.get("tool_input") or None)
+        response = await _execute_tool_call(
+            {
+                "tool_name": state.get("tool_name"),
+                "tool_endpoint": endpoint,
+                "tool_input": state.get("tool_input") or {},
+            }
+        )
     except BackendClientError as exc:
         response = {"ok": False, "error_code": exc.error_code, "message": exc.message, "details": {}}
     return {
@@ -82,6 +90,16 @@ async def _call_backend(state: AgentState, selected_agent: str) -> dict:
         "tool_response": response,
         "findings": [{"severity": "info", "message": summarize_tool_output(response)}],
     }
+
+
+async def _execute_tool_call(call: dict) -> dict:
+    tool_name = str(call.get("tool_name") or "")
+    endpoint = str(call.get("tool_endpoint") or "")
+    tool_input = call.get("tool_input") or {}
+    client = BackendClient()
+    if tool_name.startswith("mcp.default."):
+        return await client.post_internal_mcp_tool(tool_name, tool_input)
+    return await client.get(endpoint, params=tool_input or None)
 
 
 def build_graph():

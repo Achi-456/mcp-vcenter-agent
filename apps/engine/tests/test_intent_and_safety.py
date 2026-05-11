@@ -137,6 +137,42 @@ def test_intent_router_classifies_compare_prompt() -> None:
     assert [call["tool_name"] for call in intent.tool_calls or []] == ["get_vm_details", "govc_vm_info"]
 
 
+def test_intent_router_classifies_safe_mcp_status_prompts() -> None:
+    for prompt in ("test MCP", "is MCP server working?", "show MCP server info", "check MCP status", "MCP status"):
+        intent = classify_intent(prompt)
+        assert intent.domain == "mcp"
+        assert intent.task_type == "mcp_server_info"
+        assert intent.tool_name == "mcp.default.server_info"
+        assert intent.tool_endpoint == "/api/v1/internal/mcp/tools/mcp.default.server_info/call"
+
+
+def test_intent_router_classifies_safe_mcp_time_prompts() -> None:
+    for prompt in ("show MCP time", "what time does MCP server report?", "MCP server time"):
+        intent = classify_intent(prompt)
+        assert intent.task_type == "mcp_server_time"
+        assert intent.tool_name == "mcp.default.server_time"
+
+
+def test_intent_router_classifies_safe_mcp_echo_prompt() -> None:
+    intent = classify_intent("echo MCP status hello")
+    assert intent.task_type == "mcp_echo_text"
+    assert intent.tool_name == "mcp.default.echo_text"
+    assert intent.tool_input == {"text": "hello"}
+
+
+def test_intent_router_rejects_large_mcp_echo_without_tool() -> None:
+    intent = classify_intent("echo MCP status " + ("x" * 513))
+    assert intent.task_type == "mcp_input_too_large"
+    assert intent.tool_name is None
+
+
+def test_intent_router_rejects_arbitrary_mcp_tool_request() -> None:
+    for prompt in ("call MCP tool mcp.default.delete_file", "run MCP tool mcp.default.anything"):
+        intent = classify_intent(prompt)
+        assert intent.task_type in {"mcp_unsupported_tool", "blocked_action"}
+        assert intent.tool_name != "mcp.default.delete_file"
+
+
 @pytest.mark.asyncio
 async def test_safety_gate_blocks_power_off() -> None:
     result = await safety_agent_node({"tool_name": "power_off_vm", "risk_level": "approval_required"})
@@ -163,6 +199,11 @@ def test_new_risky_phrases_are_blocked_before_tool_selection() -> None:
         "force delete roshellevm02",
         "simulate shell command on host",
         "run govc command vm.power roshellevm02",
+        "run MCP shell command",
+        "execute MCP command",
+        "call MCP delete tool",
+        "use MCP to run govc",
+        "use MCP to run kubectl",
         "kubectl apply this manifest",
         "detach network from vm",
         "patch host config",

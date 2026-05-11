@@ -12,6 +12,7 @@ class Settings(BaseSettings):
         alias="BACKEND_URL",
     )
     backend_timeout_seconds: float = Field(default=60.0, alias="BACKEND_TIMEOUT_SECONDS")
+    internal_tool_api_token: str | None = Field(default=None, alias="INTERNAL_TOOL_API_TOKEN")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
 

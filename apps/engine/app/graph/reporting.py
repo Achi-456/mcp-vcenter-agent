@@ -49,6 +49,9 @@ def format_final_answer(state: AgentState) -> str:
     if state.get("task_type") == "missing_input":
         return f"{_missing_input_message(state)}\n\nNo action was taken."
 
+    if state.get("task_type") in {"mcp_missing_input", "mcp_input_too_large", "mcp_unsupported_tool"}:
+        return f"{_mcp_guidance_message(state)}\n\nNo action was taken."
+
     if state.get("tool_responses"):
         return _format_multi_tool_answer(state)
 
@@ -62,6 +65,9 @@ def format_final_answer(state: AgentState) -> str:
     data = tool_response.get("data") if isinstance(tool_response, dict) else tool_response
     task_type = state.get("task_type")
     tool_name = state.get("tool_name")
+
+    if task_type in {"mcp_server_info", "mcp_server_time", "mcp_echo_text"}:
+        return f"{_format_mcp_status_answer(str(task_type), data)}\n\nNo action was taken."
 
     if tool_name in {"get_vm_details", "get_host_details"} and isinstance(data, dict):
         return f"{_dict_table(data)}\n\nNo action was taken."
@@ -140,6 +146,39 @@ def _missing_input_message(state: AgentState) -> str:
     if object_type == "content_library":
         return "I need a content library identifier. Example: `show library items library_id=<library-id>`."
     return "I need a VM or host name for that read-only details request."
+
+
+def _mcp_guidance_message(state: AgentState) -> str:
+    if state.get("task_type") == "mcp_missing_input":
+        return "I need short text to echo. Example: `echo MCP status hello`."
+    if state.get("task_type") == "mcp_input_too_large":
+        return "MCP safe echo accepts at most 512 characters. Please provide a shorter status string."
+    return (
+        "Arbitrary MCP tool execution is not supported. I can only check safe MCP status tools: "
+        "server info, server time, and safe echo."
+    )
+
+
+def _format_mcp_status_answer(task_type: str, data: Any) -> str:
+    if not isinstance(data, dict):
+        return "MCP status tool returned a result, but it was not in the expected object format."
+    if task_type == "mcp_server_info":
+        rows = {
+            "server": data.get("server"),
+            "name": data.get("name"),
+            "version": data.get("version"),
+            "mode": data.get("mode"),
+            "safe_execution": data.get("safe_execution"),
+        }
+        return "MCP server status:\n\n" + _dict_table(_drop_empty(rows))
+    if task_type == "mcp_server_time":
+        return f"MCP server UTC time: `{data.get('utc', 'not returned')}`."
+    if task_type == "mcp_echo_text":
+        text = str(data.get("text", ""))
+        if len(text) > 120:
+            text = text[:117] + "..."
+        return f"MCP safe echo returned `{text}` with length `{data.get('length', len(text))}`."
+    return _dict_table(data)
 
 
 def _format_health_summary(state: AgentState) -> str:
@@ -380,6 +419,8 @@ def _source_name(tool_name: str) -> str:
         return "govc"
     if tool_name.startswith("vsphere_rest_"):
         return "vSphere REST"
+    if tool_name.startswith("mcp."):
+        return "MCP"
     return "pyVmomi"
 
 

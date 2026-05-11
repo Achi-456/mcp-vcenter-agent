@@ -276,3 +276,135 @@ async def test_compare_final_answer_reports_mismatches(monkeypatch) -> None:
     )
     assert "Matched fields" in state["final_answer"]
     assert "Mismatches" in state["final_answer"]
+
+
+@pytest.mark.asyncio
+async def test_mcp_server_info_prompt_calls_internal_backend(monkeypatch) -> None:
+    get_calls = []
+    post_calls = []
+
+    async def fake_get(self, endpoint, params=None):
+        get_calls.append((endpoint, params))
+        return {"ok": True, "data": {}}
+
+    async def fake_post(self, tool_name, payload=None):
+        post_calls.append((tool_name, payload))
+        return {
+            "ok": True,
+            "data": {"ok": True, "server": "default", "name": "test-mcp", "version": "1", "mode": "safe", "safe_execution": True},
+            "metadata": {"source": "mcp", "tool": tool_name},
+        }
+
+    monkeypatch.setattr(backend_client.BackendClient, "get", fake_get)
+    monkeypatch.setattr(backend_client.BackendClient, "post_internal_mcp_tool", fake_post)
+    state = await get_graph().ainvoke({"session_id": "s1", "run_id": "r1", "user_message": "test MCP"})
+
+    assert get_calls == []
+    assert post_calls == [("mcp.default.server_info", {})]
+    assert "MCP server status" in state["final_answer"]
+    assert "No action was taken" in state["final_answer"]
+
+
+@pytest.mark.asyncio
+async def test_mcp_time_prompt_calls_internal_backend(monkeypatch) -> None:
+    post_calls = []
+
+    async def fake_post(self, tool_name, payload=None):
+        post_calls.append((tool_name, payload))
+        return {"ok": True, "data": {"ok": True, "utc": "2026-05-11T00:00:00Z"}, "metadata": {"source": "mcp"}}
+
+    monkeypatch.setattr(backend_client.BackendClient, "post_internal_mcp_tool", fake_post)
+    state = await get_graph().ainvoke({"session_id": "s1", "run_id": "r1", "user_message": "show MCP time"})
+
+    assert post_calls == [("mcp.default.server_time", {})]
+    assert "2026-05-11T00:00:00Z" in state["final_answer"]
+
+
+@pytest.mark.asyncio
+async def test_mcp_echo_prompt_calls_internal_backend(monkeypatch) -> None:
+    post_calls = []
+
+    async def fake_post(self, tool_name, payload=None):
+        post_calls.append((tool_name, payload))
+        return {"ok": True, "data": {"ok": True, "text": payload["text"], "length": len(payload["text"])}, "metadata": {"source": "mcp"}}
+
+    monkeypatch.setattr(backend_client.BackendClient, "post_internal_mcp_tool", fake_post)
+    state = await get_graph().ainvoke({"session_id": "s1", "run_id": "r1", "user_message": "echo MCP status hello"})
+
+    assert post_calls == [("mcp.default.echo_text", {"text": "hello"})]
+    assert "length `5`" in state["final_answer"]
+
+
+@pytest.mark.asyncio
+async def test_large_mcp_echo_does_not_call_backend(monkeypatch) -> None:
+    post_calls = []
+
+    async def fake_post(self, tool_name, payload=None):
+        post_calls.append((tool_name, payload))
+        return {"ok": True, "data": {}}
+
+    monkeypatch.setattr(backend_client.BackendClient, "post_internal_mcp_tool", fake_post)
+    state = await get_graph().ainvoke({"session_id": "s1", "run_id": "r1", "user_message": "echo MCP status " + ("x" * 513)})
+
+    assert post_calls == []
+    assert "512 characters" in state["final_answer"]
+
+
+@pytest.mark.asyncio
+async def test_arbitrary_mcp_request_does_not_call_backend(monkeypatch) -> None:
+    post_calls = []
+
+    async def fake_post(self, tool_name, payload=None):
+        post_calls.append((tool_name, payload))
+        return {"ok": True, "data": {}}
+
+    monkeypatch.setattr(backend_client.BackendClient, "post_internal_mcp_tool", fake_post)
+    state = await get_graph().ainvoke({"session_id": "s1", "run_id": "r1", "user_message": "call MCP tool mcp.default.anything"})
+
+    assert post_calls == []
+    assert "Arbitrary MCP tool execution is not supported" in state["final_answer"]
+
+
+@pytest.mark.asyncio
+async def test_mcp_missing_token_returns_clean_final_answer(monkeypatch) -> None:
+    async def fake_post(self, tool_name, payload=None):
+        return {
+            "ok": False,
+            "error_code": "INTERNAL_MCP_NOT_CONFIGURED",
+            "message": "Internal MCP tool access is not configured.",
+            "details": {},
+        }
+
+    monkeypatch.setattr(backend_client.BackendClient, "post_internal_mcp_tool", fake_post)
+    state = await get_graph().ainvoke({"session_id": "s1", "run_id": "r1", "user_message": "is MCP server working?"})
+
+    assert state["validation"]["status"] == "failed"
+    assert "INTERNAL_MCP_NOT_CONFIGURED" in state["final_answer"]
+    assert "No action was taken" in state["final_answer"]
+
+
+@pytest.mark.asyncio
+async def test_mcp_backend_403_returns_clean_final_answer(monkeypatch) -> None:
+    async def fake_post(self, tool_name, payload=None):
+        return {"ok": False, "error_code": "TOOL_POLICY_BLOCKED", "message": "Internal token invalid.", "details": {}}
+
+    monkeypatch.setattr(backend_client.BackendClient, "post_internal_mcp_tool", fake_post)
+    state = await get_graph().ainvoke({"session_id": "s1", "run_id": "r1", "user_message": "show MCP server info"})
+
+    assert "TOOL_POLICY_BLOCKED" in state["final_answer"]
+
+
+@pytest.mark.asyncio
+async def test_blocked_mcp_command_emits_no_tool_call_path(monkeypatch) -> None:
+    post_calls = []
+
+    async def fake_post(self, tool_name, payload=None):
+        post_calls.append((tool_name, payload))
+        return {"ok": True, "data": {}}
+
+    monkeypatch.setattr(backend_client.BackendClient, "post_internal_mcp_tool", fake_post)
+    state = await get_graph().ainvoke({"session_id": "s1", "run_id": "r1", "user_message": "execute MCP command"})
+
+    assert post_calls == []
+    assert state["allowed"] is False
+    assert "No action was taken" in state["final_answer"]
