@@ -17,6 +17,7 @@ class Settings(BaseSettings):
         default="http://mcp-server.agentic-app.svc.cluster.local:8001",
         alias="MCP_SERVER_URL",
     )
+    internal_tool_api_token: str | None = Field(default=None, alias="INTERNAL_TOOL_API_TOKEN")
     vcenter_secret_name: str = Field(default="agentic-vcenter-default", alias="VCENTER_SECRET_NAME")
     k8s_namespace: str = Field(default="agentic-app", alias="POD_NAMESPACE")
 

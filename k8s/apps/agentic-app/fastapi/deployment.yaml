@@ -31,6 +31,12 @@ spec:
                 name: agentic-app-secrets
             - configMapRef:
                 name: agentic-app-config
+          env:
+            - name: INTERNAL_TOOL_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: agentic-internal-tool-token
+                  key: INTERNAL_TOOL_API_TOKEN
           resources:
             requests:
               cpu: 250m
