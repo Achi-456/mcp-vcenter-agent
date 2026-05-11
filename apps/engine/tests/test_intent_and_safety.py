@@ -11,6 +11,29 @@ def test_intent_router_classifies_host_prompt() -> None:
     assert intent.tool_endpoint == "/api/v1/context/host-details"
 
 
+def test_intent_router_extracts_quoted_names() -> None:
+    vm_intent = classify_intent('inspect "roshellevm02"')
+    host_intent = classify_intent("get details for 'esxi01.dclab.com'")
+    assert vm_intent.entity == "roshellevm02"
+    assert vm_intent.tool_name == "get_vm_details"
+    assert host_intent.entity == "esxi01.dclab.com"
+    assert host_intent.tool_name == "get_host_details"
+
+
+def test_intent_router_extracts_key_value_entities() -> None:
+    assert classify_intent("inspect vm=roshellevm02").entity == "roshellevm02"
+    assert classify_intent("check host=esxi01.dclab.com").entity == "esxi01.dclab.com"
+    assert classify_intent("show datastore datastore=ds01 details").entity == "ds01"
+    assert classify_intent("show REST attached tags object_id=vm-123").entity == "vm-123"
+    assert classify_intent("show REST library items library_id=lib-1").entity == "lib-1"
+
+
+def test_generic_words_are_not_entities() -> None:
+    intent = classify_intent("get details")
+    assert intent.task_type == "missing_input"
+    assert intent.entity is None
+
+
 def test_intent_router_classifies_host_ip_with_context() -> None:
     intent = classify_intent("get details for host 172.25.188.21")
     assert intent.tool_name == "get_host_details"
@@ -82,6 +105,13 @@ def test_normal_vm_details_still_uses_pyvmomi() -> None:
     assert intent.tool_endpoint == "/api/v1/context/vm-details"
 
 
+def test_host_like_prompts_route_to_host_details() -> None:
+    for prompt in ("get details for host 172.25.188.21", "inspect esx-prod-01", "check esxi01.dclab.com"):
+        intent = classify_intent(prompt)
+        assert intent.tool_name == "get_host_details"
+        assert intent.object_type == "host"
+
+
 def test_intent_router_classifies_compare_prompt() -> None:
     intent = classify_intent("compare pyVmomi and govc for roshellevm02")
     assert intent.task_type == "compare_diagnostics"
@@ -101,3 +131,24 @@ async def test_safety_gate_blocks_delete() -> None:
     result = await safety_agent_node({"tool_name": "delete_vm", "risk_level": "destructive"})
     assert result["allowed"] is False
     assert result["error_code"] == "TOOL_POLICY_BLOCKED"
+
+
+def test_unsupported_version_2_prompts_do_not_select_tools() -> None:
+    for prompt in ("run CSI VA check", "show Kubernetes PVCs", "use govmomi for host info", "map CNS volumes"):
+        intent = classify_intent(prompt)
+        assert intent.task_type == "planned_v2"
+        assert intent.tool_name is None
+
+
+def test_new_risky_phrases_are_blocked_before_tool_selection() -> None:
+    for prompt in (
+        "force delete roshellevm02",
+        "simulate shell command on host",
+        "kubectl apply this manifest",
+        "detach network from vm",
+        "patch host config",
+        "raw govc command vm.power -off",
+    ):
+        intent = classify_intent(prompt)
+        assert intent.task_type == "blocked_action"
+        assert intent.tool_name is not None

@@ -158,3 +158,121 @@ async def test_rest_backend_error_creates_clean_final_answer(monkeypatch) -> Non
     assert state["validation"]["status"] == "failed"
     assert "VCENTER_INVENTORY_ERROR" in state["final_answer"]
     assert "No action was taken" in state["final_answer"]
+
+
+@pytest.mark.asyncio
+async def test_missing_details_prompt_does_not_call_backend(monkeypatch) -> None:
+    calls = []
+
+    async def fake_get(self, endpoint, params=None):
+        calls.append((endpoint, params))
+        return {"ok": True, "data": {}}
+
+    monkeypatch.setattr(backend_client.BackendClient, "get", fake_get)
+    state = await get_graph().ainvoke({"session_id": "s1", "run_id": "r1", "user_message": "get details"})
+    assert calls == []
+    assert state["task_type"] == "missing_input"
+    assert "VM or host name" in state["final_answer"]
+    assert "No action was taken" in state["final_answer"]
+
+
+@pytest.mark.asyncio
+async def test_missing_rest_ids_do_not_call_backend(monkeypatch) -> None:
+    calls = []
+
+    async def fake_get(self, endpoint, params=None):
+        calls.append((endpoint, params))
+        return {"ok": True, "data": {}}
+
+    monkeypatch.setattr(backend_client.BackendClient, "get", fake_get)
+    tags_state = await get_graph().ainvoke({"session_id": "s1", "run_id": "r1", "user_message": "show attached tags"})
+    items_state = await get_graph().ainvoke({"session_id": "s1", "run_id": "r1", "user_message": "show library items"})
+    assert calls == []
+    assert "object_id" in tags_state["final_answer"]
+    assert "library_id" in items_state["final_answer"]
+
+
+@pytest.mark.asyncio
+async def test_version_2_prompt_returns_guidance_without_backend_call(monkeypatch) -> None:
+    calls = []
+
+    async def fake_get(self, endpoint, params=None):
+        calls.append((endpoint, params))
+        return {"ok": True, "data": {}}
+
+    monkeypatch.setattr(backend_client.BackendClient, "get", fake_get)
+    state = await get_graph().ainvoke({"session_id": "s1", "run_id": "r1", "user_message": "run CSI VA check"})
+    assert calls == []
+    assert "planned for Version 2" in state["final_answer"]
+    assert "No action was taken" in state["final_answer"]
+
+
+@pytest.mark.asyncio
+async def test_health_summary_calls_all_readonly_sources(monkeypatch) -> None:
+    calls = []
+
+    async def fake_get(self, endpoint, params=None):
+        calls.append((endpoint, params))
+        return {"ok": True, "data": []}
+
+    monkeypatch.setattr(backend_client.BackendClient, "get", fake_get)
+    state = await get_graph().ainvoke({"session_id": "s1", "run_id": "r1", "user_message": "summarize vCenter health"})
+    assert calls == [
+        ("/api/v1/context/environment", None),
+        ("/api/v1/context/datastore-health", None),
+        ("/api/v1/monitoring/alarms", None),
+        ("/api/v1/monitoring/events", {"limit": 50}),
+    ]
+    assert "vCenter health summary" in state["final_answer"]
+
+
+@pytest.mark.asyncio
+async def test_health_summary_continues_when_one_source_fails(monkeypatch) -> None:
+    async def fake_get(self, endpoint, params=None):
+        if endpoint == "/api/v1/monitoring/alarms":
+            return {"ok": False, "error_code": "VCENTER_UNREACHABLE", "message": "Alarm source unavailable.", "details": {}}
+        return {"ok": True, "data": []}
+
+    monkeypatch.setattr(backend_client.BackendClient, "get", fake_get)
+    state = await get_graph().ainvoke({"session_id": "s1", "run_id": "r1", "user_message": "anything wrong in vCenter?"})
+    assert len(state["tool_responses"]) == 4
+    assert state["validation"]["status"] == "failed"
+    assert "failed source" in state["final_answer"]
+
+
+@pytest.mark.asyncio
+async def test_compare_datastore_prompt_calls_pyvmomi_and_govc(monkeypatch) -> None:
+    calls = []
+
+    async def fake_get(self, endpoint, params=None):
+        calls.append((endpoint, params))
+        return {"ok": True, "data": [{"name": "datastore1", "capacity_gb": 100, "free_gb": 50, "accessible": True}]}
+
+    monkeypatch.setattr(backend_client.BackendClient, "get", fake_get)
+    state = await get_graph().ainvoke(
+        {"session_id": "s1", "run_id": "r1", "user_message": "compare pyVmomi and govc datastore info"}
+    )
+    assert calls == [
+        ("/api/v1/inventory/datastores", None),
+        ("/api/v1/govc/datastore-info", None),
+    ]
+    assert "Diagnostic comparison" in state["final_answer"]
+    assert "Matched fields" in state["final_answer"]
+
+
+@pytest.mark.asyncio
+async def test_compare_final_answer_reports_mismatches(monkeypatch) -> None:
+    async def fake_get(self, endpoint, params=None):
+        if endpoint == "/api/v1/context/vm-details":
+            return {"ok": True, "data": {"name": "roshellevm02", "power_state": "poweredOn", "cpu": 2}}
+        return {
+            "ok": True,
+            "data": {"virtualMachines": [{"name": "roshellevm02", "runtime": {"powerState": "poweredOff"}, "config": {"hardware": {"numCPU": 2}}}]},
+        }
+
+    monkeypatch.setattr(backend_client.BackendClient, "get", fake_get)
+    state = await get_graph().ainvoke(
+        {"session_id": "s1", "run_id": "r1", "user_message": "compare pyVmomi and govc for roshellevm02"}
+    )
+    assert "Matched fields" in state["final_answer"]
+    assert "Mismatches" in state["final_answer"]

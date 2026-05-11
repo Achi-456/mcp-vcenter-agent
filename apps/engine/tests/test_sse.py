@@ -58,3 +58,25 @@ async def test_sse_emits_multiple_tool_events_for_compare(monkeypatch) -> None:
     assert event_types.count("tool_result") == 2
     assert event_types[-3:] == ["validation", "final", "done"]
     assert [event["tool"] for event in events if event["type"] == "tool_call"] == ["get_vm_details", "govc_vm_info"]
+
+
+@pytest.mark.asyncio
+async def test_sse_emits_multiple_tool_events_for_health_summary(monkeypatch) -> None:
+    async def fake_get(self, endpoint, params=None):
+        return {"ok": True, "data": []}
+
+    monkeypatch.setattr(backend_client.BackendClient, "get", fake_get)
+    response = await run_agent(RunRequest(message="summarize vCenter health", session_id="s1"))
+    body = ""
+    async for chunk in response.body_iterator:
+        body += chunk
+
+    events = [
+        json.loads(line.removeprefix("data: "))
+        for line in body.splitlines()
+        if line.startswith("data: ")
+    ]
+    event_types = [event["type"] for event in events]
+    assert event_types.count("tool_call") == 4
+    assert event_types.count("tool_result") == 4
+    assert event_types[-3:] == ["validation", "final", "done"]

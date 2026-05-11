@@ -14,7 +14,7 @@ from app.graph.state import AgentState
 def route_by_intent(state: AgentState) -> Literal["blocked_agent", "tools_agent", "vcenter_readonly_agent", "general_agent"]:
     if not state.get("allowed", True):
         return "blocked_agent"
-    if state.get("task_type") in {"greeting", "unsupported"}:
+    if state.get("task_type") in {"greeting", "unsupported", "missing_input", "planned_v2"}:
         return "general_agent"
     if state.get("task_type") == "list_tools":
         return "tools_agent"

@@ -58,3 +58,12 @@ def compare_calls(object_type: str, entity: str | None) -> list[dict[str, Any]]:
             govc_endpoint("govc_datastore_info"),
         ]
     return []
+
+
+def health_summary_calls() -> list[dict[str, Any]]:
+    return [
+        tool_call("get_environment_overview", "/api/v1/context/environment"),
+        tool_call("get_datastore_health", "/api/v1/context/datastore-health"),
+        tool_call("get_active_alarms", "/api/v1/monitoring/alarms"),
+        tool_call("get_recent_events", "/api/v1/monitoring/events", {"limit": 50}),
+    ]
