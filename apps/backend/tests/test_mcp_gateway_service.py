@@ -53,6 +53,42 @@ def registry() -> MCPServerRegistryService:
     )
 
 
+def untrusted_registry() -> MCPServerRegistryService:
+    return MCPServerRegistryService(
+        {
+            "default": MCPServer(
+                id="default",
+                name="default",
+                base_url="http://mcp.local",
+                enabled=True,
+                trusted=False,
+            )
+        }
+    )
+
+
+async def safe_tools_http_get(url: str):
+    if url.endswith("/health"):
+        return {"status": "ok", "mode": "safe"}
+    if url.endswith("/tools"):
+        return {
+            "tools": [
+                {"name": "server_info", "risk_level": "read_only", "category": "Diagnostics", "agent": "mcp_diagnostic_agent"},
+                {"name": "server_time", "risk_level": "read_only", "category": "Diagnostics", "agent": "mcp_diagnostic_agent"},
+                {
+                    "name": "echo_text",
+                    "risk_level": "read_only",
+                    "category": "Diagnostics",
+                    "agent": "mcp_diagnostic_agent",
+                    "input_schema": {"type": "object", "properties": {"text": {"type": "string"}}},
+                },
+            ]
+        }
+    if url.endswith("/resources"):
+        return {"resources": []}
+    return {"prompts": []}
+
+
 @pytest.mark.asyncio
 async def test_empty_mcp_discovery_returns_empty_state() -> None:
     async def http_get(url: str):
@@ -112,6 +148,18 @@ def test_allowlisted_read_only_tool_can_be_implemented_metadata() -> None:
     assert tool.input_schema == {"type": "object"}
 
 
+@pytest.mark.asyncio
+async def test_default_allowlisted_tools_normalize_as_implemented() -> None:
+    discovery = await MCPGatewayService(registry=registry(), cache=FakeCache(), audit=FakeAudit(), http_get=safe_tools_http_get).discover()
+
+    by_name = {tool.name: tool for tool in discovery.tools}
+    assert by_name["mcp.default.server_info"].enabled is True
+    assert by_name["mcp.default.server_info"].implemented is True
+    assert by_name["mcp.default.server_info"].risk_level == RiskLevel.READ_ONLY
+    assert by_name["mcp.default.server_info"].category == "Diagnostics"
+    assert by_name["mcp.default.echo_text"].agent == "mcp_diagnostic_agent"
+
+
 def test_unsafe_tool_name_stays_disabled_even_if_allowlisted() -> None:
     server = registry().get_server("default")
     tool = MCPGatewayService(registry=registry(), allowlist={"mcp.default.shell_exec"}).normalize_tool(
@@ -161,7 +209,7 @@ async def test_internal_call_evaluates_policy_before_blocking() -> None:
 
     audit = FakeAudit()
     policy = RecordingPolicy()
-    service = MCPGatewayService(registry=registry(), audit=audit)
+    service = MCPGatewayService(registry=registry(), cache=FakeCache(), audit=audit, http_get=safe_tools_http_get)
     tool_registry = ToolRegistryService(
         extra_tools=[
             ToolSpec(
@@ -186,3 +234,127 @@ async def test_internal_call_evaluates_policy_before_blocking() -> None:
     assert policy.evaluated is True
     assert response["ok"] is False
     assert audit.tool_events[0]["status"] == "blocked"
+
+
+@pytest.mark.asyncio
+async def test_internal_call_executes_allowlisted_tool_after_policy() -> None:
+    post_calls = []
+
+    async def http_post(url: str, payload: dict):
+        post_calls.append((url, payload))
+        return {"ok": True, "server": "default", "mode": "safe"}
+
+    audit = FakeAudit()
+    response = await MCPGatewayService(
+        registry=registry(),
+        cache=FakeCache(),
+        audit=audit,
+        http_get=safe_tools_http_get,
+        http_post=http_post,
+    ).call_tool_internal(
+        tool_name="mcp.default.server_info",
+        tool_registry=ToolRegistryService(),
+        policy=PolicyService(),
+    )
+
+    assert response["ok"] is True
+    assert response["data"]["server"] == "default"
+    assert post_calls == [("http://mcp.local/tools/server_info/call", {})]
+    assert audit.tool_events[0]["status"] == "success"
+
+
+@pytest.mark.asyncio
+async def test_echo_text_audit_does_not_store_raw_payload() -> None:
+    async def http_post(url: str, payload: dict):
+        return {"ok": True, "text": payload["text"], "length": len(payload["text"])}
+
+    audit = FakeAudit()
+    response = await MCPGatewayService(
+        registry=registry(),
+        cache=FakeCache(),
+        audit=audit,
+        http_get=safe_tools_http_get,
+        http_post=http_post,
+    ).call_tool_internal(
+        tool_name="mcp.default.echo_text",
+        tool_registry=ToolRegistryService(),
+        policy=PolicyService(),
+        payload={"text": "do-not-audit-this"},
+    )
+
+    assert response["ok"] is True
+    metadata = audit.tool_events[0]["metadata"]
+    assert metadata["input_summary"]["text_length"] == 17
+    assert "do-not-audit-this" not in str(metadata)
+
+
+@pytest.mark.asyncio
+async def test_failed_mcp_server_call_returns_clean_error() -> None:
+    async def http_post(url: str, payload: dict):
+        return {"ok": False, "error_code": "MCP_TOOL_INVALID_INPUT", "message": "Invalid input.", "details": {}}
+
+    audit = FakeAudit()
+    response = await MCPGatewayService(
+        registry=registry(),
+        cache=FakeCache(),
+        audit=audit,
+        http_get=safe_tools_http_get,
+        http_post=http_post,
+    ).call_tool_internal(
+        tool_name="mcp.default.echo_text",
+        tool_registry=ToolRegistryService(),
+        policy=PolicyService(),
+        payload={"text": "x"},
+    )
+
+    assert response["ok"] is False
+    assert response["error_code"] == "MCP_TOOL_INVALID_INPUT"
+    assert audit.tool_events[0]["status"] == "failed"
+
+
+@pytest.mark.asyncio
+async def test_unknown_untrusted_and_unallowlisted_tools_are_blocked() -> None:
+    audit = FakeAudit()
+    service = MCPGatewayService(registry=registry(), cache=FakeCache(), audit=audit, http_get=safe_tools_http_get)
+    unknown = await service.call_tool_internal(
+        tool_name="mcp.default.unknown",
+        tool_registry=ToolRegistryService(),
+        policy=PolicyService(),
+    )
+    assert unknown["ok"] is False
+    assert unknown["error_code"] == ErrorCode.MCP_TOOL_NOT_FOUND
+
+    async def extra_tool_http_get(url: str):
+        if url.endswith("/health"):
+            return {"status": "ok"}
+        if url.endswith("/tools"):
+            return {"tools": [{"name": "not_allowlisted", "risk_level": "read_only"}]}
+        if url.endswith("/resources"):
+            return {"resources": []}
+        return {"prompts": []}
+
+    unallowlisted = await MCPGatewayService(
+        registry=registry(),
+        cache=FakeCache(),
+        audit=audit,
+        http_get=extra_tool_http_get,
+    ).call_tool_internal(
+        tool_name="mcp.default.not_allowlisted",
+        tool_registry=ToolRegistryService(),
+        policy=PolicyService(),
+    )
+    assert unallowlisted["ok"] is False
+    assert unallowlisted["error_code"] in {ErrorCode.MCP_TOOL_BLOCKED, ErrorCode.TOOL_DISABLED}
+
+    untrusted = await MCPGatewayService(
+        registry=untrusted_registry(),
+        cache=FakeCache(),
+        audit=audit,
+        http_get=safe_tools_http_get,
+    ).call_tool_internal(
+        tool_name="mcp.default.server_info",
+        tool_registry=ToolRegistryService(),
+        policy=PolicyService(),
+    )
+    assert untrusted["ok"] is False
+    assert untrusted["error_code"] == ErrorCode.MCP_TOOL_BLOCKED

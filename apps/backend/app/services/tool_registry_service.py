@@ -138,8 +138,11 @@ class ToolRegistryService:
             tools[tool.name] = tool
         return sorted(tools.values(), key=lambda tool: tool.name)
 
-    def get_tool(self, tool_name: str) -> ToolSpec:
-        tool = self._tools.get(tool_name)
+    def get_tool(self, tool_name: str, extra_tools: list[ToolSpec] | None = None) -> ToolSpec:
+        tools = dict(self._tools)
+        for extra_tool in extra_tools or []:
+            tools[extra_tool.name] = extra_tool
+        tool = tools.get(tool_name)
         if tool is None:
             raise KeyError(ErrorCode.TOOL_NOT_FOUND)
         return tool

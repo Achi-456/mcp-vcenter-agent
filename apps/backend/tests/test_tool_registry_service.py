@@ -1,5 +1,6 @@
 import pytest
 
+from app.schemas.tools import RiskLevel, ToolSpec
 from app.services.tool_registry_service import ToolRegistryService
 
 
@@ -75,3 +76,25 @@ def test_registry_categories_and_agents() -> None:
 def test_missing_tool_raises_key_error() -> None:
     with pytest.raises(KeyError):
         ToolRegistryService().get_tool("missing")
+
+
+def test_get_tool_can_resolve_dynamic_extra_tool_without_persisting() -> None:
+    registry = ToolRegistryService()
+    dynamic = ToolSpec(
+        name="mcp.default.server_info",
+        display_name="MCP Server Info",
+        description="Safe MCP server metadata.",
+        domain="mcp",
+        category="Diagnostics",
+        agent="mcp_diagnostic_agent",
+        backend="mcp",
+        risk_level=RiskLevel.READ_ONLY,
+        enabled=True,
+        implemented=True,
+        requires_approval=False,
+        mcp_server="default",
+    )
+
+    assert registry.get_tool("mcp.default.server_info", extra_tools=[dynamic]) == dynamic
+    with pytest.raises(KeyError):
+        registry.get_tool("mcp.default.server_info")

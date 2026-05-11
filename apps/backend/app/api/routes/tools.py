@@ -38,9 +38,11 @@ async def agents(registry: ToolRegistryService = Depends(tool_registry_dep)) -> 
 async def get_tool(
     tool_name: str,
     registry: ToolRegistryService = Depends(tool_registry_dep),
+    mcp_gateway: MCPGatewayService = Depends(mcp_gateway_dep),
 ):
     try:
-        tool = registry.get_tool(tool_name)
+        mcp_tools = (await mcp_gateway.discover("default")).tools if tool_name.startswith("mcp.") else []
+        tool = registry.get_tool(tool_name, extra_tools=mcp_tools)
     except KeyError:
         return JSONResponse(
             status_code=404,

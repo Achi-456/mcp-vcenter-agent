@@ -6,6 +6,7 @@ from typing import Any
 import httpx
 
 from app.core.errors import ErrorCode
+from app.core.responses import error_response, success_response
 from app.schemas.mcp import MCPDiscovery, MCPServer, MCPServerStatus
 from app.schemas.tools import RiskLevel, ToolSpec
 from app.services.audit_service import AuditService
@@ -16,6 +17,12 @@ from app.services.tool_registry_service import ToolRegistryService
 
 
 HttpGet = Callable[[str], Awaitable[dict[str, Any]]]
+HttpPost = Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]]
+DEFAULT_MCP_TOOL_ALLOWLIST = {
+    "mcp.default.server_info",
+    "mcp.default.server_time",
+    "mcp.default.echo_text",
+}
 UNSAFE_NAME_MARKERS = (
     "shell",
     "exec",
@@ -33,6 +40,9 @@ UNSAFE_NAME_MARKERS = (
     "patch",
     "update",
     "create",
+    "upload",
+    "copy",
+    "move",
 )
 
 
@@ -44,13 +54,15 @@ class MCPGatewayService:
         cache: CacheService | None = None,
         audit: AuditService | None = None,
         http_get: HttpGet | None = None,
+        http_post: HttpPost | None = None,
         allowlist: set[str] | None = None,
     ) -> None:
         self.registry = registry or MCPServerRegistryService()
         self.cache = cache or CacheService()
         self.audit = audit or AuditService()
         self.http_get = http_get or self._http_get
-        self.allowlist = allowlist or set()
+        self.http_post = http_post or self._http_post
+        self.allowlist = set(DEFAULT_MCP_TOOL_ALLOWLIST if allowlist is None else allowlist)
 
     async def status(self, server_id: str, *, refresh: bool = False) -> MCPServerStatus:
         discovery = await self.discover(server_id, refresh=refresh)
@@ -152,8 +164,20 @@ class MCPGatewayService:
         policy: PolicyService,
         payload: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        server_id = self._server_id_from_tool_name(tool_name)
         try:
-            tool = tool_registry.get_tool(tool_name)
+            discovery = await self.discover(server_id)
+        except KeyError:
+            await self.audit.record_mcp_tool_attempt(
+                tool_name=tool_name,
+                status="blocked",
+                error_code=str(ErrorCode.MCP_SERVER_NOT_FOUND),
+                metadata={"reason": "server_not_found"},
+            )
+            return error_response(ErrorCode.MCP_SERVER_NOT_FOUND, "MCP server was not found.")
+
+        try:
+            tool = tool_registry.get_tool(tool_name, extra_tools=discovery.tools)
         except KeyError:
             await self.audit.record_mcp_tool_attempt(
                 tool_name=tool_name,
@@ -161,7 +185,18 @@ class MCPGatewayService:
                 error_code=str(ErrorCode.MCP_TOOL_NOT_FOUND),
                 metadata={"reason": "tool_not_found"},
             )
-            return {"ok": False, "error_code": str(ErrorCode.MCP_TOOL_NOT_FOUND), "message": "MCP tool not found."}
+            return error_response(ErrorCode.MCP_TOOL_NOT_FOUND, "MCP tool not found.")
+
+        server = discovery.server
+        if not server.enabled or not server.trusted:
+            await self.audit.record_mcp_tool_attempt(
+                tool_name=tool.name,
+                status="blocked",
+                risk_level=str(tool.risk_level),
+                error_code=str(ErrorCode.MCP_TOOL_BLOCKED),
+                metadata={"reason": "server_not_trusted_or_disabled", "server_id": server.id},
+            )
+            return error_response(ErrorCode.MCP_TOOL_BLOCKED, "MCP server is disabled or untrusted.")
 
         decision = policy.evaluate(tool)
         if not decision.allowed:
@@ -172,23 +207,83 @@ class MCPGatewayService:
                 error_code=str(decision.error_code),
                 metadata={"reason": decision.message},
             )
-            return {"ok": False, "error_code": str(decision.error_code), "message": decision.message}
+            return error_response(str(decision.error_code), decision.message)
+
+        if tool.name not in self.allowlist:
+            await self.audit.record_mcp_tool_attempt(
+                tool_name=tool.name,
+                status="blocked",
+                risk_level=str(tool.risk_level),
+                error_code=str(ErrorCode.MCP_TOOL_BLOCKED),
+                metadata={"reason": "tool_not_allowlisted", "server_id": server.id},
+            )
+            return error_response(ErrorCode.MCP_TOOL_BLOCKED, "MCP tool is not allowlisted.")
+
+        if tool.backend != "mcp" or tool.risk_level != RiskLevel.READ_ONLY:
+            await self.audit.record_mcp_tool_attempt(
+                tool_name=tool.name,
+                status="blocked",
+                risk_level=str(tool.risk_level),
+                error_code=str(ErrorCode.MCP_TOOL_BLOCKED),
+                metadata={"reason": "invalid_backend_or_risk", "server_id": server.id},
+            )
+            return error_response(ErrorCode.MCP_TOOL_BLOCKED, "MCP tool is not eligible for execution.")
+
+        raw_tool_name = self._raw_tool_name(tool.name, server.id)
+        payload = payload or {}
+        try:
+            response = await self._post(server, f"/tools/{raw_tool_name}/call", payload)
+        except Exception:
+            await self.audit.record_mcp_tool_attempt(
+                tool_name=tool.name,
+                status="failed",
+                risk_level=str(tool.risk_level),
+                error_code=str(ErrorCode.MCP_TOOL_EXECUTION_FAILED),
+                metadata={"server_id": server.id, "input_summary": self._input_summary(tool.name, payload)},
+            )
+            return error_response(ErrorCode.MCP_TOOL_EXECUTION_FAILED, "MCP tool execution failed.")
+
+        if not isinstance(response, dict):
+            await self.audit.record_mcp_tool_attempt(
+                tool_name=tool.name,
+                status="failed",
+                risk_level=str(tool.risk_level),
+                error_code=str(ErrorCode.MCP_TOOL_EXECUTION_FAILED),
+                metadata={"server_id": server.id, "reason": "non_object_response"},
+            )
+            return error_response(ErrorCode.MCP_TOOL_EXECUTION_FAILED, "MCP tool returned an invalid response.")
+
+        if response.get("ok") is False:
+            error_code = str(response.get("error_code") or ErrorCode.MCP_TOOL_EXECUTION_FAILED)
+            await self.audit.record_mcp_tool_attempt(
+                tool_name=tool.name,
+                status="failed",
+                risk_level=str(tool.risk_level),
+                error_code=error_code,
+                metadata={"server_id": server.id, "input_summary": self._input_summary(tool.name, payload)},
+            )
+            return error_response(error_code, str(response.get("message") or "MCP tool execution failed."))
 
         await self.audit.record_mcp_tool_attempt(
             tool_name=tool.name,
-            status="blocked",
+            status="success",
             risk_level=str(tool.risk_level),
-            error_code=str(ErrorCode.MCP_TOOL_BLOCKED),
-            metadata={"reason": "public_execution_not_available", "input_keys": sorted((payload or {}).keys())},
+            metadata={
+                "server_id": server.id,
+                "input_summary": self._input_summary(tool.name, payload),
+                "output_keys": sorted(response.keys()),
+            },
         )
-        return {
-            "ok": False,
-            "error_code": str(ErrorCode.MCP_TOOL_BLOCKED),
-            "message": "MCP tool execution is not enabled in this phase.",
-        }
+        return success_response(
+            response,
+            source="mcp",
+        )
 
     async def _get(self, server: MCPServer, path: str) -> dict[str, Any]:
         return await self.http_get(f"{server.base_url}{path}")
+
+    async def _post(self, server: MCPServer, path: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return await self.http_post(f"{server.base_url}{path}", payload)
 
     async def _http_get(self, url: str) -> dict[str, Any]:
         async with httpx.AsyncClient(timeout=3) as client:
@@ -197,6 +292,16 @@ class MCPGatewayService:
         payload = response.json()
         if not isinstance(payload, dict):
             raise ValueError("MCP server returned non-object JSON")
+        return payload
+
+    async def _http_post(self, url: str, payload: dict[str, Any]) -> dict[str, Any]:
+        async with httpx.AsyncClient(timeout=3) as client:
+            response = await client.post(url, json=payload)
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise ValueError("MCP server returned non-object JSON")
+        if response.is_error and payload.get("ok") is not False:
+            response.raise_for_status()
         return payload
 
     def _risk_level(self, raw_tool: dict[str, Any]) -> RiskLevel:
@@ -208,6 +313,22 @@ class MCPGatewayService:
     def _is_unsafe_name(self, name: str) -> bool:
         lower = name.lower()
         return any(marker in lower for marker in UNSAFE_NAME_MARKERS)
+
+    def _server_id_from_tool_name(self, tool_name: str) -> str:
+        parts = tool_name.split(".", 2)
+        if len(parts) >= 3 and parts[0] == "mcp":
+            return parts[1]
+        return "default"
+
+    def _raw_tool_name(self, tool_name: str, server_id: str) -> str:
+        prefix = f"mcp.{server_id}."
+        return tool_name.removeprefix(prefix)
+
+    def _input_summary(self, tool_name: str, payload: dict[str, Any]) -> dict[str, Any]:
+        summary: dict[str, Any] = {"input_keys": sorted(payload.keys())}
+        if tool_name.endswith(".echo_text") and "text" in payload:
+            summary["text_length"] = len(str(payload.get("text")))
+        return summary
 
     def _schema(self, raw_tool: dict[str, Any], key: str) -> dict[str, Any]:
         value = raw_tool.get(key) or raw_tool.get(key.replace("_", "Schema"))
