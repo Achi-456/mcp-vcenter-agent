@@ -47,6 +47,12 @@ def test_intent_router_classifies_vm_prompt() -> None:
     assert intent.tool_endpoint == "/api/v1/context/vm-details"
 
 
+def test_natural_vm_health_prompt_routes_to_vm_details() -> None:
+    intent = classify_intent("is roshellevm02 okay?")
+    assert intent.tool_name == "get_vm_details"
+    assert intent.tool_input == {"name": "roshellevm02"}
+
+
 def test_intent_router_classifies_tools_prompt() -> None:
     intent = classify_intent("list down all tools")
     assert intent.tool_name == "list_tools"
@@ -63,6 +69,12 @@ def test_intent_router_classifies_govc_vm_info() -> None:
     intent = classify_intent("use govc to inspect roshellevm02")
     assert intent.tool_name == "govc_vm_info"
     assert intent.tool_endpoint == "/api/v1/govc/vm-info"
+    assert intent.tool_input == {"name": "roshellevm02"}
+
+
+def test_intent_router_classifies_govc_verify_vm_info() -> None:
+    intent = classify_intent("verify roshellevm02 with govc")
+    assert intent.tool_name == "govc_vm_info"
     assert intent.tool_input == {"name": "roshellevm02"}
 
 
@@ -105,6 +117,12 @@ def test_normal_vm_details_still_uses_pyvmomi() -> None:
     assert intent.tool_endpoint == "/api/v1/context/vm-details"
 
 
+def test_natural_inventory_prompts_route_correctly() -> None:
+    assert classify_intent("show me all hosts").tool_name == "list_hosts"
+    assert classify_intent("show me all VMs").tool_name == "list_vms"
+    assert classify_intent("critical datastores?").tool_name == "get_datastore_health"
+
+
 def test_host_like_prompts_route_to_host_details() -> None:
     for prompt in ("get details for host 172.25.188.21", "inspect esx-prod-01", "check esxi01.dclab.com"):
         intent = classify_intent(prompt)
@@ -144,6 +162,7 @@ def test_new_risky_phrases_are_blocked_before_tool_selection() -> None:
     for prompt in (
         "force delete roshellevm02",
         "simulate shell command on host",
+        "run govc command vm.power roshellevm02",
         "kubectl apply this manifest",
         "detach network from vm",
         "patch host config",

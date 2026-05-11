@@ -69,6 +69,8 @@ def extract_entity(message: str, *, prefer: str | None = None) -> str | None:
         r"\bfor\s+(\"[^\"]+\"|'[^']+'|[^\s,?]+)",
         r"\babout\s+(\"[^\"]+\"|'[^']+'|[^\s,?]+)",
         r"\bcheck\s+(\"[^\"]+\"|'[^']+'|[^\s,?]+)",
+        r"\bverify\s+(\"[^\"]+\"|'[^']+'|[^\s,?]+)",
+        r"\bis\s+(\"[^\"]+\"|'[^']+'|[^\s,?]+)\s+okay\b",
     )
     for pattern in patterns:
         match = re.search(pattern, message, flags=re.IGNORECASE)
