@@ -79,7 +79,36 @@ async def run_agent(request: RunRequest) -> StreamingResponse:
         if final_state.get("selected_agent"):
             yield sse(event_payload("agent_start", agent=final_state["selected_agent"]))
 
-        if final_state.get("allowed", True) and final_state.get("tool_name"):
+        tool_responses = final_state.get("tool_responses") or []
+        if final_state.get("allowed", True) and tool_responses:
+            for result in tool_responses:
+                yield sse(
+                    event_payload(
+                        "tool_call",
+                        tool=result.get("tool_name"),
+                        risk_level=final_state.get("risk_level", "read_only"),
+                        input_summary=_input_summary(result.get("tool_input") or {}),
+                    )
+                )
+                tool_response = result.get("response")
+                ok = tool_response.get("ok", True) if isinstance(tool_response, dict) else True
+                yield sse(
+                    event_payload(
+                        "tool_result",
+                        tool=result.get("tool_name"),
+                        ok=ok,
+                        output_summary=_tool_summary(tool_response),
+                    )
+                )
+                if isinstance(tool_response, dict) and tool_response.get("ok") is False:
+                    yield sse(
+                        event_payload(
+                            "error",
+                            error_code=tool_response.get("error_code", "BACKEND_ERROR"),
+                            message=tool_response.get("message", "Backend tool failed."),
+                        )
+                    )
+        elif final_state.get("allowed", True) and final_state.get("tool_name"):
             yield sse(
                 event_payload(
                     "tool_call",

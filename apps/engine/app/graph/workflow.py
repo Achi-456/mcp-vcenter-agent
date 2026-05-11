@@ -49,6 +49,27 @@ async def report_agent_node(state: AgentState) -> dict:
 
 
 async def _call_backend(state: AgentState, selected_agent: str) -> dict:
+    tool_calls = state.get("tool_calls") or []
+    if len(tool_calls) > 1:
+        responses = []
+        findings = []
+        for call in tool_calls:
+            endpoint = call.get("tool_endpoint")
+            if not endpoint:
+                continue
+            try:
+                response = await BackendClient().get(endpoint, params=call.get("tool_input") or None)
+            except BackendClientError as exc:
+                response = {"ok": False, "error_code": exc.error_code, "message": exc.message, "details": {}}
+            responses.append({**call, "response": response})
+            findings.append({"severity": "info", "message": f"{call.get('tool_name')}: {summarize_tool_output(response)}"})
+        return {
+            "selected_agent": selected_agent,
+            "tool_responses": responses,
+            "tool_response": responses[0]["response"] if responses else None,
+            "findings": findings,
+        }
+
     endpoint = state.get("tool_endpoint")
     if not endpoint:
         return {"selected_agent": selected_agent, "tool_response": None, "findings": []}

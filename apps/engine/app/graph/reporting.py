@@ -14,6 +14,10 @@ def validate_state(state: AgentState) -> dict[str, Any]:
     tool_response = state.get("tool_response")
     if isinstance(tool_response, dict) and tool_response.get("ok") is False:
         errors.append(str(tool_response.get("error_code") or "BACKEND_ERROR"))
+    for result in state.get("tool_responses") or []:
+        response = result.get("response")
+        if isinstance(response, dict) and response.get("ok") is False:
+            errors.append(f"{result.get('tool_name')}: {response.get('error_code') or 'BACKEND_ERROR'}")
     return {"status": "failed" if errors else "passed", "errors": errors}
 
 
@@ -30,8 +34,18 @@ def format_final_answer(state: AgentState) -> str:
     if state.get("task_type") == "unsupported":
         return (
             "I can help with read-only vCenter checks such as VM details, host details, datastore "
-            "health, active alarms, recent events, RKE2 VMs, and tool listing.\n\nNo action was taken."
+            "health, active alarms, recent events, RKE2 VMs, govc diagnostics, vSphere REST diagnostics, "
+            "and tool listing.\n\nNo action was taken."
         )
+
+    if state.get("task_type") == "missing_input":
+        return (
+            "I need a specific identifier for that read-only diagnostic request. For attached tags, provide "
+            "`object_id=<moid>`. For library items, provide `library_id=<id>`.\n\nNo action was taken."
+        )
+
+    if state.get("tool_responses"):
+        return _format_multi_tool_answer(state)
 
     tool_response = state.get("tool_response")
     if isinstance(tool_response, dict) and tool_response.get("ok") is False:
@@ -78,6 +92,41 @@ def format_final_answer(state: AgentState) -> str:
     return "Request completed.\n\nNo action was taken."
 
 
+def _format_multi_tool_answer(state: AgentState) -> str:
+    rows = []
+    failures = []
+    for result in state.get("tool_responses") or []:
+        response = result.get("response") or {}
+        ok = response.get("ok", True) if isinstance(response, dict) else True
+        if ok:
+            data = response.get("data") if isinstance(response, dict) else response
+            summary = summarize_tool_output(response)
+        else:
+            summary = f"{response.get('error_code')}: {response.get('message')}"
+            failures.append(str(result.get("tool_name")))
+        rows.append(
+            {
+                "source": _source_name(str(result.get("tool_name"))),
+                "tool": result.get("tool_name"),
+                "ok": ok,
+                "summary": summary,
+            }
+        )
+    title = "Diagnostic comparison" if state.get("task_type") == "compare_diagnostics" else "Diagnostic results"
+    note = ""
+    if failures:
+        note = "\n\nOne or more sources returned a clean error envelope; no fallback values were invented."
+    return f"{title}:\n\n{_list_table(rows)}{note}\n\nNo action was taken."
+
+
+def _source_name(tool_name: str) -> str:
+    if tool_name.startswith("govc_"):
+        return "govc"
+    if tool_name.startswith("vsphere_rest_"):
+        return "vSphere REST"
+    return "pyVmomi"
+
+
 def summarize_tool_output(tool_response: Any) -> str:
     if isinstance(tool_response, dict) and tool_response.get("ok") is False:
         return f"{tool_response.get('error_code')}: {tool_response.get('message')}"
@@ -104,6 +153,9 @@ def _dict_table(data: dict[str, Any]) -> str:
 def _list_table(rows: list[dict[str, Any]]) -> str:
     if not rows:
         return "No rows returned."
+    if not isinstance(rows[0], dict):
+        normalized = [{"value": row} for row in rows]
+        return _list_table(normalized)
     columns = [key for key in rows[0].keys() if not isinstance(rows[0].get(key), (dict, list))][:6]
     if not columns:
         return "Rows returned, but no scalar fields are available for table display."
