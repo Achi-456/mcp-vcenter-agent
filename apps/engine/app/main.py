@@ -171,5 +171,8 @@ def _tool_summary(tool_response: Any) -> str:
     if isinstance(data, list):
         return f"{len(data)} item(s) returned"
     if isinstance(data, dict):
-        return json.dumps({key: data[key] for key in list(data.keys())[:5]}, default=str)
+        scalar_items = {key: value for key, value in data.items() if not isinstance(value, (dict, list))}
+        if scalar_items:
+            return json.dumps({key: scalar_items[key] for key in list(scalar_items.keys())[:5]}, default=str)
+        return f"{len(data)} field(s) returned"
     return "result returned"
