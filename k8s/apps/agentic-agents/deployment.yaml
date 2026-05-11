@@ -21,7 +21,7 @@ spec:
         kubernetes.io/hostname: agentic-worker-02.dclab.local
       containers:
         - name: agent-engine
-          image: ghcr.io/achi-456/agentic-engine:99b7a1b35487361698352dd4f4150674bac8368a
+          image: ghcr.io/achi-456/agentic-engine:bb6c0c92b3dde52ba91842ebfa1de46124493778
           ports:
             - containerPort: 8080
               name: http
