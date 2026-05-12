@@ -13,7 +13,8 @@ function value(payload: Record<string, unknown>, key: string, fallback = '') {
 
 function finalAnswer(events: ChatStreamEvent[]) {
   const finalEvent = [...events].reverse().find((event) => event.type === 'final')
-  return finalEvent ? value(finalEvent.payload, 'content') : ''
+  const content = finalEvent ? value(finalEvent.payload, 'content') : ''
+  return content.replace(/(No action was taken\.\s*){2,}/gi, 'No action was taken.')
 }
 
 function blockedAnswer(events: ChatStreamEvent[]) {

@@ -3,6 +3,7 @@
 import { useCallback } from 'react'
 import { api } from '@/lib/api'
 import { formatGb, formatPercent, objectEntries, type InventoryRow } from '@/lib/inventory-data'
+import { redactSensitive } from '@/lib/settings-data'
 import { ErrorState, LoadingState, StatusBadge } from '@/components/ui'
 import { RawToggle } from '@/components/chat'
 import { useApiResource } from '@/hooks/use-api-resource'
@@ -115,7 +116,7 @@ export function DetailsDrawer({ row, onClose }: { row: InventoryRow | null; onCl
                 .map(([key, value]) => (
                   <DetailRow key={key} label={key} value={String(value)} />
                 ))}
-              <RawToggle raw={JSON.stringify(details.data, null, 2)} />
+              <RawToggle raw={JSON.stringify(redactSensitive(details.data), null, 2)} />
             </div>
           ) : null}
         </div>

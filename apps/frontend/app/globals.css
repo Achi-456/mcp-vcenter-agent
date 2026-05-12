@@ -19,11 +19,13 @@
 
 html {
   min-height: 100%;
+  overflow-x: hidden;
 }
 
 body {
   min-height: 100%;
   margin: 0;
+  overflow-x: hidden;
   background:
     radial-gradient(circle at top left, rgba(163, 206, 241, 0.42), transparent 32rem),
     linear-gradient(135deg, rgba(255, 248, 238, 0.98), rgba(246, 228, 200, 0.42));
@@ -40,6 +42,11 @@ input,
 textarea,
 select {
   font: inherit;
+}
+
+pre,
+code {
+  max-width: 100%;
 }
 
 .ops-grid {

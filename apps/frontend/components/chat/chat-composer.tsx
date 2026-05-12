@@ -28,7 +28,7 @@ export function ChatComposer({ disabled = false, onSend }: ChatComposerProps) {
   }
 
   return (
-    <form onSubmit={submit} className="rounded-2xl border border-ops-steel/10 bg-white p-3 shadow-card">
+    <form onSubmit={submit} className="rounded-2xl border border-ops-steel/10 bg-white p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-card">
       <label htmlFor="chat-input" className="sr-only">
         Ask AgenticOps
       </label>

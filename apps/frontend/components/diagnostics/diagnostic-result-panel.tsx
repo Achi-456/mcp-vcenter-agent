@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { ErrorState, StatusBadge } from '@/components/ui'
 import { RawToggle } from '@/components/chat'
 import { extractArrayItems, extractObjectFields, formatJsonSummary } from '@/lib/diagnostics-data'
+import { redactSensitive } from '@/lib/settings-data'
 import type { ApiEnvelope } from '@/lib/types'
 
 type DiagnosticResultPanelProps = {
@@ -16,7 +17,7 @@ export function DiagnosticResultPanel({ title, result, isLoading = false }: Diag
   const [copied, setCopied] = useState(false)
 
   async function copyResult() {
-    await navigator.clipboard.writeText(JSON.stringify(result, null, 2))
+    await navigator.clipboard.writeText(JSON.stringify(redactSensitive(result), null, 2))
     setCopied(true)
     window.setTimeout(() => setCopied(false), 1200)
   }
@@ -49,7 +50,7 @@ export function DiagnosticResultPanel({ title, result, isLoading = false }: Diag
           message={providerLimited ? 'This vCenter REST provider does not expose this operation. No fake success data is shown.' : result.message}
           code={result.error_code}
         />
-        <RawToggle raw={JSON.stringify(result, null, 2)} />
+        <RawToggle raw={JSON.stringify(redactSensitive(result), null, 2)} />
       </div>
     )
   }
@@ -117,7 +118,7 @@ export function DiagnosticResultPanel({ title, result, isLoading = false }: Diag
           {copied ? 'Copied' : 'Copy result'}
         </button>
       </div>
-      <RawToggle raw={JSON.stringify(result, null, 2)} />
+      <RawToggle raw={JSON.stringify(redactSensitive(result), null, 2)} />
     </section>
   )
 }

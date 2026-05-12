@@ -19,7 +19,7 @@ function Sidebar() {
   const pathname = usePathname()
 
   return (
-    <aside className="flex min-h-screen w-full flex-col bg-ops-navy text-white lg:fixed lg:inset-y-0 lg:left-0 lg:w-72">
+    <aside className="flex w-full flex-col bg-ops-navy text-white lg:fixed lg:inset-y-0 lg:left-0 lg:min-h-screen lg:w-72">
       <div className="border-b border-white/10 px-6 py-6">
         <p className="text-xs font-bold uppercase tracking-[0.24em] text-ops-info">AgenticOps</p>
         <h1 className="mt-2 text-xl font-bold">Console</h1>
@@ -46,15 +46,15 @@ function Sidebar() {
       <div className="space-y-3 border-t border-white/10 p-5 text-xs">
         <div className="flex items-center justify-between gap-3">
           <span className="text-white/70">FastAPI</span>
-          <StatusBadge status="checking" />
+          <StatusBadge status="status" />
         </div>
         <div className="flex items-center justify-between gap-3">
           <span className="text-white/70">vCenter</span>
-          <StatusBadge status="checking" />
+          <StatusBadge status="status" />
         </div>
         <div className="flex items-center justify-between gap-3">
           <span className="text-white/70">Agent</span>
-          <StatusBadge status="checking" />
+          <StatusBadge status="status" />
         </div>
         <div className="flex items-center justify-between gap-3">
           <span className="text-white/70">MCP</span>

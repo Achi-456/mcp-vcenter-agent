@@ -121,6 +121,18 @@ export async function apiGet<T>(path: string, init?: RequestInit & { timeoutMs?:
   }
 }
 
+export async function apiPost<T>(path: string, body?: unknown, init?: RequestInit & { timeoutMs?: number }): Promise<ApiEnvelope<T>> {
+  return apiGet<T>(path, {
+    ...init,
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(init?.headers ?? {}),
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+}
+
 export const api = {
   getHealthServices: () => apiGet<ServiceHealthMap>('/api/v1/health/services'),
   getEnvironment: () => apiGet<unknown>('/api/v1/context/environment'),
@@ -148,7 +160,11 @@ export const api = {
   getVsphereRestLibraryItems: (libraryId: string) => apiGet<unknown>(`/api/v1/vsphere-rest/content-libraries/${encodeURIComponent(libraryId)}/items`),
   getVsphereRestRecentTasks: () => apiGet<unknown>('/api/v1/vsphere-rest/tasks/recent'),
   getVcenterStatus: () => apiGet<unknown>('/api/v1/connections/vcenter/status'),
+  testVcenterConnection: () => apiPost<unknown>('/api/v1/connections/vcenter/test', {}),
+  reconnectVcenter: () => apiPost<unknown>('/api/v1/connections/vcenter/reconnect', {}),
   getMcpDefaultStatus: () => apiGet<unknown>('/api/v1/mcp/servers/default/status'),
   getMcpTools: () => apiGet<unknown>('/api/v1/mcp/tools'),
   getTools: () => apiGet<ToolListResponse>('/api/v1/tools'),
+  getSessions: () => apiGet<unknown>('/api/v1/sessions'),
+  getAuditEvents: () => apiGet<unknown>('/api/v1/audit/events'),
 }
