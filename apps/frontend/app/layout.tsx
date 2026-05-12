@@ -1,9 +1,10 @@
 import type { Metadata } from 'next'
+import { AppShell } from '@/components/layout/app-shell'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'vCenter Agentic Ops',
-  description: 'Clean rebuild baseline for vCenter Agentic Ops Platform',
+  title: 'AgenticOps Console',
+  description: 'Professional infrastructure operations console with AI-assisted diagnostics',
 }
 
 export default function RootLayout({
@@ -13,8 +14,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <AppShell>{children}</AppShell>
+      </body>
     </html>
   )
 }
-

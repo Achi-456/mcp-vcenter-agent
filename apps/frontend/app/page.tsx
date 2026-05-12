@@ -1,60 +1,83 @@
-const cards = [
-  ['API Gateway', 'Ready baseline', 'FastAPI health and SSE placeholder'],
-  ['Agent Engine', 'Rebuild target', 'Worker-02 LangGraph service comes next'],
-  ['MCP Server', 'Placeholder', 'Tools/resources/prompts currently empty'],
-  ['GitOps', 'Preserved', 'Argo CD manifests stay in k8s/ for later adoption'],
-]
+'use client'
 
-export default function Home() {
-  return (
-    <main className="grid-shell min-h-screen px-6 py-8">
-      <section className="mx-auto flex max-w-6xl flex-col gap-8">
-        <div className="rounded-3xl border border-emerald-400/20 bg-black/35 p-8 shadow-2xl shadow-emerald-500/10 backdrop-blur">
-          <p className="text-sm uppercase tracking-[0.45em] text-emerald-300/80">
-            vCenter Agentic Ops
-          </p>
-          <h1 className="mt-4 max-w-3xl text-4xl font-semibold tracking-tight text-white md:text-6xl">
-            Clean rebuild baseline for the infrastructure agent console.
-          </h1>
-          <p className="mt-5 max-w-2xl text-lg text-emerald-50/70">
-            This branch intentionally resets the broken app layer to a small,
-            verifiable foundation: UI shell, FastAPI gateway, agent-engine
-            placeholder, and MCP placeholder.
-          </p>
-          <div className="mt-8 flex flex-wrap gap-3">
-            <a
-              href="/chat"
-              className="rounded-full bg-emerald-400 px-5 py-3 text-sm font-semibold text-black transition hover:bg-emerald-300"
-            >
-              Open chat
-            </a>
-            <a
-              href="/api/health"
-              className="rounded-full border border-emerald-300/30 px-5 py-3 text-sm font-semibold text-emerald-100 transition hover:border-emerald-200"
-            >
-              Check UI health
-            </a>
-          </div>
-        </div>
+import { useCallback, useMemo } from 'react'
+import { api } from '@/lib/api'
+import { HealthCard, LoadingState, MetricCard, PageHeader, RefreshButton, SectionCard } from '@/components/ui'
+import { useApiResource } from '@/hooks/use-api-resource'
+import type { ServiceHealthMap } from '@/lib/types'
 
-        <div className="grid gap-4 md:grid-cols-2">
-          {cards.map(([title, status, detail]) => (
-            <article
-              key={title}
-              className="rounded-2xl border border-emerald-400/15 bg-console-panel/80 p-5 backdrop-blur"
-            >
-              <div className="flex items-center justify-between gap-4">
-                <h2 className="text-xl font-semibold text-white">{title}</h2>
-                <span className="rounded-full border border-emerald-300/30 px-3 py-1 text-xs text-emerald-200">
-                  {status}
-                </span>
-              </div>
-              <p className="mt-3 text-sm text-emerald-50/65">{detail}</p>
-            </article>
-          ))}
-        </div>
-      </section>
-    </main>
-  )
+function countServices(data: ServiceHealthMap | null, predicate: (value: unknown) => boolean) {
+  if (!data) return 0
+  return Object.values(data).filter(predicate).length
 }
 
+function statusFromValue(value: unknown) {
+  if (typeof value === 'string') return value
+  if (typeof value === 'boolean') return value ? 'online' : 'offline'
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>
+    if (typeof record.status === 'string') return record.status
+    if (typeof record.healthy === 'boolean') return record.healthy ? 'healthy' : 'degraded'
+  }
+  return 'unknown'
+}
+
+export default function DashboardPage() {
+  const loadHealth = useCallback(() => api.getHealthServices(), [])
+  const health = useApiResource(loadHealth)
+
+  const services = useMemo(() => Object.entries(health.data ?? {}), [health.data])
+  const healthyCount = countServices(health.data, (value) => {
+    const status = statusFromValue(value).toLowerCase()
+    return status.includes('healthy') || status.includes('online') || status.includes('ok')
+  })
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        eyebrow="Operations Overview"
+        title="Dashboard"
+        description="A vCenter-style summary for infrastructure health, diagnostic readiness, and safe automation posture."
+        action={<RefreshButton onRefresh={health.refresh} isRefreshing={health.isRefreshing} />}
+      />
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <MetricCard title="Services" value={services.length || '—'} subtitle="Reported by FastAPI health services" status="live" />
+        <MetricCard title="Healthy" value={healthyCount || '—'} subtitle="Online or healthy service checks" status="status" />
+        <MetricCard title="Agent Health" value="Ready" subtitle="Chat routing handled by Agent Engine" status="phase 9a" />
+        <MetricCard title="MCP Posture" value="Safe" subtitle="Metadata/status only in UI foundation" status="read-only" />
+      </div>
+
+      {health.isLoading ? <LoadingState /> : null}
+      {health.error ? (
+        <SectionCard title="Health service unavailable" description={health.error}>
+          <p className="text-sm text-ops-muted">Existing dashboard cards stay visible while the API is unreachable.</p>
+        </SectionCard>
+      ) : null}
+
+      <div className="grid gap-5 xl:grid-cols-[1.25fr_0.75fr]">
+        <SectionCard
+          title="Environment Overview"
+          description="Phase 9A wires health only. Inventory, alarms, events, and datastore summaries are added in later UI subphases."
+        >
+          <div className="grid gap-3 md:grid-cols-2">
+            {services.slice(0, 6).map(([name, value]) => (
+              <HealthCard key={name} name={name} status={statusFromValue(value)} detail="Service status from /api/v1/health/services" />
+            ))}
+            {!services.length && !health.isLoading ? (
+              <HealthCard name="FastAPI health" status={health.error ? 'degraded' : 'unknown'} detail="No service rows returned yet." />
+            ) : null}
+          </div>
+        </SectionCard>
+
+        <SectionCard title="AI Suggested Checks" description="Prompt examples for the Phase 9B assistant experience.">
+          <div className="space-y-3 text-sm text-ops-muted">
+            <p className="rounded-xl bg-ops-cream px-4 py-3 font-mono text-ops-ink">summarize vCenter health</p>
+            <p className="rounded-xl bg-ops-cream px-4 py-3 font-mono text-ops-ink">critical datastores?</p>
+            <p className="rounded-xl bg-ops-cream px-4 py-3 font-mono text-ops-ink">test MCP</p>
+          </div>
+        </SectionCard>
+      </div>
+    </div>
+  )
+}

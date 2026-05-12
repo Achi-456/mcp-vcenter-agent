@@ -1,92 +1,79 @@
 'use client'
 
-import { FormEvent, useState } from 'react'
-
-type ChatMessage = {
-  role: 'assistant' | 'user'
-  content: string
-}
+import { ChatComposer, ChatMessageList, PromptSuggestions } from '@/components/chat'
+import { ErrorState, PageHeader, RefreshButton, SectionCard, StatusBadge, ToolBadge } from '@/components/ui'
+import { useChatStream } from '@/hooks/use-chat-stream'
 
 export default function ChatPage() {
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      role: 'assistant',
-      content: "Hi, I'm your vCenter Agent. How can I help you with your infrastructure today?",
-    },
-  ])
-  const [input, setInput] = useState('')
-
-  function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const trimmed = input.trim()
-    if (!trimmed) return
-
-    setMessages((current) => [
-      ...current,
-      { role: 'user', content: trimmed },
-      {
-        role: 'assistant',
-        content:
-          'Baseline chat is online. Next rebuild step is wiring this to the FastAPI SSE stream and agent engine.',
-      },
-    ])
-    setInput('')
-  }
+  const { messages, sessionId, isStreaming, streamError, sendMessage, startNewSession } = useChatStream()
+  const toolEvents = messages.flatMap((message) => message.events ?? []).filter((event) => event.type === 'tool_call')
+  const blockedEvents = messages.flatMap((message) => message.events ?? []).filter((event) => event.type === 'safety_check' && event.payload.allowed === false)
 
   return (
-    <main className="grid-shell min-h-screen px-6 py-8">
-      <section className="mx-auto grid max-w-6xl gap-6 lg:grid-cols-[1fr_320px]">
-        <div className="rounded-3xl border border-emerald-400/20 bg-black/35 p-6 backdrop-blur">
-          <div className="border-b border-emerald-400/15 pb-5">
-            <p className="text-xs uppercase tracking-[0.35em] text-emerald-300/80">
-              Agent Console
-            </p>
-            <h1 className="mt-3 text-3xl font-semibold text-white">Chat</h1>
-          </div>
+    <div className="space-y-6 pb-28">
+      <PageHeader
+        eyebrow="AI Assistant"
+        title="Chat"
+        description="Streamed Agent Engine diagnostics with visible intent, safety checks, tool traces, validation, and final answers."
+        action={<RefreshButton onRefresh={startNewSession} isRefreshing={false} />}
+      />
 
-          <div className="mt-6 flex min-h-[520px] flex-col gap-4">
-            {messages.map((message, index) => (
-              <div
-                key={`${message.role}-${index}`}
-                className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-6 ${
-                  message.role === 'user'
-                    ? 'ml-auto bg-emerald-400 text-black'
-                    : 'border border-emerald-400/15 bg-console-panel text-emerald-50'
-                }`}
-              >
-                {message.content}
+      <div className="grid gap-5 xl:grid-cols-[1fr_340px]">
+        <section className="min-h-[calc(100vh-14rem)] space-y-5">
+          <div className="rounded-2xl border border-ops-steel/10 bg-white p-4 shadow-card">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-ops-ink">Session</p>
+                <p className="mt-1 font-mono text-xs text-ops-muted">{sessionId ?? 'New session will be assigned on first stream event.'}</p>
               </div>
-            ))}
+              <div className="flex flex-wrap gap-2">
+                <StatusBadge status={isStreaming ? 'streaming' : 'ready'} />
+                <ToolBadge label={`${toolEvents.length} tool call(s)`} />
+                {blockedEvents.length ? <ToolBadge label={`${blockedEvents.length} blocked`} active={false} /> : null}
+              </div>
+            </div>
           </div>
 
-          <form onSubmit={submit} className="mt-6 flex gap-3">
-            <input
-              value={input}
-              onChange={(event) => setInput(event.target.value)}
-              placeholder="Ask about vCenter infrastructure..."
-              className="min-w-0 flex-1 rounded-full border border-emerald-400/20 bg-black/40 px-5 py-3 text-sm text-white outline-none ring-emerald-300/40 transition placeholder:text-emerald-100/35 focus:ring-2"
-            />
-            <button
-              type="submit"
-              className="rounded-full bg-emerald-400 px-6 py-3 text-sm font-semibold text-black transition hover:bg-emerald-300"
-            >
-              Send
-            </button>
-          </form>
-        </div>
+          {streamError ? <ErrorState title="Chat stream failed" message={streamError} code="STREAM_ERROR" /> : null}
 
-        <aside className="rounded-3xl border border-emerald-400/20 bg-console-panel/80 p-6 backdrop-blur">
-          <p className="text-xs uppercase tracking-[0.35em] text-emerald-300/80">
-            Session Rail
-          </p>
-          <div className="mt-5 space-y-4 text-sm text-emerald-50/70">
-            <p>Current branch is a rebuild baseline.</p>
-            <p>SSE event rendering comes after backend and engine contracts stabilize.</p>
-            <p>No vCenter credentials or API keys are stored in this UI.</p>
+          <div className="max-h-[calc(100vh-18rem)] overflow-y-auto rounded-3xl border border-ops-steel/10 bg-ops-cream/70 p-5">
+            <ChatMessageList messages={messages} />
           </div>
+        </section>
+
+        <aside className="space-y-5">
+          <SectionCard title="Session Rail" description="Current stream posture.">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm text-ops-muted">Safety</span>
+                <StatusBadge status={blockedEvents.length ? 'blocked seen' : 'ready'} />
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm text-ops-muted">Tool trace</span>
+                <ToolBadge label="cards" />
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm text-ops-muted">Raw JSON</span>
+                <ToolBadge label="hidden by default" active={false} />
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm text-ops-muted">MCP</span>
+                <ToolBadge label="safe status only" />
+              </div>
+            </div>
+          </SectionCard>
+
+          <SectionCard title="Prompt Suggestions">
+            <PromptSuggestions onSelect={sendMessage} />
+          </SectionCard>
         </aside>
-      </section>
-    </main>
+      </div>
+
+      <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-ops-steel/10 bg-ops-cream/95 p-4 backdrop-blur lg:left-72">
+        <div className="mx-auto max-w-7xl">
+          <ChatComposer disabled={isStreaming} onSend={sendMessage} />
+        </div>
+      </div>
+    </div>
   )
 }
-
