@@ -12,6 +12,7 @@ from app.api.routes import (
     health,
     internal_mcp,
     inventory,
+    llm,
     mcp,
     monitoring,
     sessions,
@@ -45,6 +46,7 @@ app.include_router(connections.router)
 app.include_router(inventory.router)
 app.include_router(context.router)
 app.include_router(monitoring.router)
+app.include_router(llm.router)
 app.include_router(mcp.router)
 app.include_router(internal_mcp.router)
 app.include_router(govc.router)

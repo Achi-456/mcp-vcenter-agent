@@ -20,6 +20,12 @@ class Settings(BaseSettings):
     internal_tool_api_token: str | None = Field(default=None, alias="INTERNAL_TOOL_API_TOKEN")
     vcenter_secret_name: str = Field(default="agentic-vcenter-default", alias="VCENTER_SECRET_NAME")
     k8s_namespace: str = Field(default="agentic-app", alias="POD_NAMESPACE")
+    llm_enabled: bool = Field(default=False, alias="LLM_ENABLED")
+    llm_provider: str = Field(default="gemini", alias="LLM_PROVIDER")
+    llm_model: str | None = Field(default=None, alias="LLM_MODEL")
+    openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
+    gemini_api_key: str | None = Field(default=None, alias="GEMINI_API_KEY")
+    llm_timeout_seconds: float = Field(default=30.0, alias="LLM_TIMEOUT_SECONDS")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
 

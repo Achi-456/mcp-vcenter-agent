@@ -22,5 +22,14 @@ class AgentState(TypedDict, total=False):
     tool_responses: list[dict[str, Any]]
     findings: list[dict[str, Any]]
     validation: dict[str, Any]
+    llm_enabled: bool
+    llm_provider: str | None
+    llm_model: str | None
+    deterministic_answer: str | None
+    llm_report: str | None
+    llm_review: dict[str, Any] | None
+    llm_used: bool
+    llm_error: str | None
+    final_answer_source: str
     final_answer: str
     errors: list[dict[str, Any]]

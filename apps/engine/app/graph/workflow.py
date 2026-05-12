@@ -9,6 +9,7 @@ from app.graph.intent_router import intent_router_node
 from app.graph.reporting import format_final_answer, summarize_tool_output, validate_state
 from app.graph.safety import safety_agent_node
 from app.graph.state import AgentState
+from app.llm.reporting import review_llm_report, select_final_answer, write_llm_report
 
 
 def route_by_intent(state: AgentState) -> Literal["blocked_agent", "tools_agent", "vcenter_readonly_agent", "general_agent"]:
@@ -46,8 +47,21 @@ async def validation_agent_node(state: AgentState) -> dict:
     return {"validation": validate_state(state)}
 
 
-async def report_agent_node(state: AgentState) -> dict:
-    return {"final_answer": format_final_answer(state)}
+async def deterministic_report_agent_node(state: AgentState) -> dict:
+    answer = format_final_answer(state)
+    return {"deterministic_answer": answer, "final_answer": answer, "final_answer_source": "deterministic"}
+
+
+async def llm_report_writer_agent_node(state: AgentState) -> dict:
+    return await write_llm_report(state)
+
+
+async def llm_reviewer_agent_node(state: AgentState) -> dict:
+    return await review_llm_report(state)
+
+
+async def final_response_selector_node(state: AgentState) -> dict:
+    return await select_final_answer(state)
 
 
 async def _call_backend(state: AgentState, selected_agent: str) -> dict:
@@ -111,7 +125,10 @@ def build_graph():
     graph.add_node("vcenter_readonly_agent", vcenter_readonly_agent_node)
     graph.add_node("general_agent", general_agent_node)
     graph.add_node("validation_agent", validation_agent_node)
-    graph.add_node("report_agent", report_agent_node)
+    graph.add_node("deterministic_report_agent", deterministic_report_agent_node)
+    graph.add_node("llm_report_writer_agent", llm_report_writer_agent_node)
+    graph.add_node("llm_reviewer_agent", llm_reviewer_agent_node)
+    graph.add_node("final_response_selector", final_response_selector_node)
 
     graph.add_edge(START, "intent_router")
     graph.add_edge("intent_router", "safety_agent")
@@ -120,8 +137,11 @@ def build_graph():
     graph.add_edge("tools_agent", "validation_agent")
     graph.add_edge("vcenter_readonly_agent", "validation_agent")
     graph.add_edge("general_agent", "validation_agent")
-    graph.add_edge("validation_agent", "report_agent")
-    graph.add_edge("report_agent", END)
+    graph.add_edge("validation_agent", "deterministic_report_agent")
+    graph.add_edge("deterministic_report_agent", "llm_report_writer_agent")
+    graph.add_edge("llm_report_writer_agent", "llm_reviewer_agent")
+    graph.add_edge("llm_reviewer_agent", "final_response_selector")
+    graph.add_edge("final_response_selector", END)
     return graph.compile()
 
 

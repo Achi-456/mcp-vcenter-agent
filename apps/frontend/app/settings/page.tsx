@@ -30,6 +30,10 @@ export default function SettingsPage() {
   const [actionMessage, setActionMessage] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState(false)
+  const [selectedProvider, setSelectedProvider] = useState('gemini')
+  const [apiKey, setApiKey] = useState('')
+  const [showKeyModal, setShowKeyModal] = useState(false)
+  const [isConfiguring, setIsConfiguring] = useState(false)
 
   useEffect(() => {
     try {
@@ -51,10 +55,36 @@ export default function SettingsPage() {
   const mcp = useApiResource(useCallback(() => api.getMcpDefaultStatus(), []))
   const mcpTools = useApiResource(useCallback(() => api.getMcpTools(), []))
   const tools = useApiResource(useCallback(() => api.getTools(), []))
-  const resources = useMemo(() => [vcenter, health, mcp, mcpTools, tools], [vcenter, health, mcp, mcpTools, tools])
+  const llmStatus = useApiResource(useCallback(() => api.getLlmStatus(), []))
+  const llmProviders = useApiResource(useCallback(() => api.getLlmProviders(), []))
+  const llmModels = useApiResource(useCallback(() => api.getLlmModels(selectedProvider), [selectedProvider]))
+  const resources = useMemo(() => [vcenter, health, mcp, mcpTools, tools, llmStatus, llmProviders, llmModels], [vcenter, health, mcp, mcpTools, tools, llmStatus, llmProviders, llmModels])
   const summary = toolSummary(tools.data)
   const safeTools = safeMcpTools(mcpTools.data)
   const healthData = objectFrom(health.data)
+  const providerRows = arrayFrom(llmProviders.data).map((provider) => objectFrom(provider))
+  const modelPayload = objectFrom(llmModels.data)
+  const modelRows = arrayFrom(modelPayload.models)
+    .map((model) => objectFrom(model))
+    .slice(0, 30)
+
+  const currentProvider = providerRows.find((p) => p.id === selectedProvider) || { id: selectedProvider, configured: false }
+
+  async function handleSaveKey() {
+    if (!apiKey.trim()) return
+    setIsConfiguring(true)
+    const result = await api.configureLlmProvider(selectedProvider, apiKey)
+    if (result.ok) {
+      setActionMessage(`Provider ${selectedProvider} configured successfully.`)
+      await llmProviders.refresh()
+      await llmModels.refresh()
+      setShowKeyModal(false)
+      setApiKey('')
+    } else {
+      setActionError(result.message)
+    }
+    setIsConfiguring(false)
+  }
 
   async function runAction(kind: 'test' | 'reconnect') {
     if (kind === 'reconnect') {
@@ -77,6 +107,47 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-6">
+      {showKeyModal ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ops-navy/60 backdrop-blur-sm">
+          <div className="w-full max-md:mx-4 max-w-md rounded-3xl bg-white p-8 shadow-2xl">
+            <h2 className="text-xl font-bold text-ops-ink">Configure {selectedProvider}</h2>
+            <p className="mt-2 text-sm text-ops-muted">
+              {currentProvider.configured
+                ? 'An API key is already configured for this provider. Enter a new one to change it.'
+                : 'No API key is configured. Please paste your API key below to enable this provider.'}
+            </p>
+            <div className="mt-6">
+              <label className="text-xs font-bold uppercase tracking-widest text-ops-muted">API Key</label>
+              <input
+                type="password"
+                className="mt-2 w-full rounded-xl border border-ops-steel/15 bg-ops-cream px-4 py-3 text-sm text-ops-ink focus:border-ops-navy focus:outline-none"
+                placeholder={currentProvider.configured ? '••••••••••••••••' : 'Paste API key here...'}
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+              />
+            </div>
+            <div className="mt-8 flex gap-3">
+              <button
+                className="flex-1 rounded-xl bg-ops-navy px-4 py-3 text-sm font-semibold text-white hover:bg-ops-steel disabled:opacity-50"
+                onClick={handleSaveKey}
+                disabled={isConfiguring || !apiKey.trim()}
+              >
+                {isConfiguring ? 'Saving...' : 'Save API Key'}
+              </button>
+              <button
+                className="flex-1 rounded-xl bg-ops-cream px-4 py-3 text-sm font-semibold text-ops-ink hover:bg-ops-steel/10"
+                onClick={() => {
+                  setShowKeyModal(false)
+                  setApiKey('')
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <PageHeader
         eyebrow="Settings"
         title="Settings"
@@ -153,9 +224,98 @@ export default function SettingsPage() {
           </div>
         </SectionCard>
 
-        <SectionCard title="LLM Provider">
-          <div className="rounded-2xl border border-ops-info bg-ops-info/20 p-4 text-sm leading-6 text-ops-navy">
-            Deterministic routing is active. LLM provider configuration UI is planned later. No API key is shown or stored in the browser.
+        <SectionCard title="LLM Provider" description="Provider/model discovery is fetched by the backend from provider APIs. API keys stay server-side.">
+          {llmProviders.error ? <ErrorState title="LLM providers unavailable" message={llmProviders.error} code={llmProviders.errorCode} /> : null}
+          {llmModels.error ? <ErrorState title="LLM model discovery unavailable" message={llmModels.error} code={llmModels.errorCode} /> : null}
+          <div className="grid gap-4">
+            <ConnectionCard
+              title="Configured Runtime"
+              status={safeStatus(llmStatus.data)}
+              rows={[
+                { label: 'Enabled', value: safeDetail(llmStatus.data, ['enabled'], 'unknown') },
+                { label: 'Provider', value: safeDetail(llmStatus.data, ['provider'], 'not configured') },
+                { label: 'Model', value: safeDetail(llmStatus.data, ['model'], 'not configured') },
+                { label: 'Secret status', value: safeDetail(llmStatus.data, ['status'], 'unknown') },
+              ]}
+            />
+            <div className="rounded-2xl border border-ops-steel/10 bg-white p-5 shadow-card">
+              <div className="flex items-end gap-3">
+                <label className="flex-1 text-xs font-bold uppercase tracking-[0.18em] text-ops-muted">
+                  Provider
+                  <select
+                    value={selectedProvider}
+                    onChange={(event) => setSelectedProvider(event.target.value)}
+                    className="mt-2 w-full rounded-xl border border-ops-steel/15 bg-ops-cream px-4 py-2 text-sm normal-case tracking-normal text-ops-ink"
+                  >
+                    {providerRows.length ? (
+                      providerRows.map((provider) => (
+                        <option key={String(provider.id)} value={String(provider.id)}>
+                          {String(provider.name ?? provider.id)} {provider.configured ? '(configured)' : '(secret missing)'}
+                        </option>
+                      ))
+                    ) : (
+                      <option value="gemini">Google Gemini</option>
+                    )}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setShowKeyModal(true)}
+                  className="mb-0.5 rounded-xl border border-ops-steel/15 bg-white px-4 py-2 text-sm font-semibold text-ops-ink hover:bg-ops-cream"
+                >
+                  {currentProvider.configured ? 'Change Key' : 'Configure Key'}
+                </button>
+              </div>
+              <div className="mt-4 flex items-center justify-between gap-3">
+                <StatusBadge status={modelPayload.configured === false ? 'not configured' : modelPayload.error ? 'degraded' : 'ready'} />
+                <button
+                  type="button"
+                  onClick={() => void llmModels.refresh()}
+                  className="rounded-xl bg-ops-navy px-4 py-2 text-sm font-semibold text-white hover:bg-ops-steel disabled:opacity-50"
+                  disabled={llmModels.isRefreshing}
+                >
+                  {llmModels.isRefreshing ? 'Loading models' : 'Refresh models'}
+                </button>
+              </div>
+              {modelPayload.error ? <p className="mt-3 text-sm text-amber-700">{String(modelPayload.error)}</p> : null}
+              {modelPayload.configured === false ? (
+                <p className="mt-3 text-sm leading-6 text-ops-muted">Provider secret is not configured on the backend. Add the provider API key via the "Configure Key" button above.</p>
+              ) : null}
+              <div className="mt-4 max-h-96 overflow-auto rounded-2xl border border-ops-steel/10">
+                <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
+                  <thead className="bg-ops-cream">
+                    <tr>
+                      {['Model', 'Display name', 'Input', 'Output'].map((heading) => (
+                        <th key={heading} className="border-b border-ops-steel/10 px-3 py-3 font-semibold text-ops-ink">
+                          {heading}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {modelRows.length ? (
+                      modelRows.map((model) => (
+                        <tr key={String(model.id ?? model.name)}>
+                          <td className="border-b border-ops-steel/10 px-3 py-3 font-mono text-xs text-ops-ink">{String(model.id ?? model.name)}</td>
+                          <td className="border-b border-ops-steel/10 px-3 py-3 text-ops-muted">{String(model.display_name ?? model.name ?? '—')}</td>
+                          <td className="border-b border-ops-steel/10 px-3 py-3 text-ops-muted">{String(model.input_token_limit ?? '—')}</td>
+                          <td className="border-b border-ops-steel/10 px-3 py-3 text-ops-muted">{String(model.output_token_limit ?? '—')}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={4} className="px-3 py-6 text-center text-ops-muted">
+                          No models returned.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div className="rounded-2xl border border-ops-info bg-ops-info/20 p-4 text-sm leading-6 text-ops-navy">
+              Provider/model selection here is discovery-only. Runtime selection still comes from Engine environment variables so the browser never receives API keys.
+            </div>
           </div>
         </SectionCard>
       </div>

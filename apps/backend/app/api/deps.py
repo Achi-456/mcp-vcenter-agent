@@ -2,6 +2,7 @@ from app.core.config import Settings, get_settings
 from app.services.audit_service import AuditService
 from app.services.cache_service import CacheService
 from app.services.health_service import HealthService
+from app.services.llm_model_service import LLMModelService
 from app.services.govc_service import GovcService
 from app.services.mcp_gateway_service import MCPGatewayService
 from app.services.mcp_server_registry_service import MCPServerRegistryService
@@ -40,6 +41,10 @@ def secret_store_dep() -> SecretStore:
 
 def health_dep() -> HealthService:
     return HealthService()
+
+
+def llm_model_dep() -> LLMModelService:
+    return LLMModelService()
 
 
 def mcp_server_registry_dep() -> MCPServerRegistryService:

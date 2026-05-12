@@ -137,7 +137,16 @@ async def run_agent(request: RunRequest) -> StreamingResponse:
                 )
 
         yield sse(event_payload("validation", **(final_state.get("validation") or {"status": "passed"})))
-        yield sse(event_payload("final", content=final_state.get("final_answer", "")))
+        review = final_state.get("llm_review") or {}
+        yield sse(
+            event_payload(
+                "final",
+                content=final_state.get("final_answer", ""),
+                final_answer_source=final_state.get("final_answer_source", "deterministic"),
+                llm_used=final_state.get("llm_used", False),
+                reviewer_passed=review.get("passed") if isinstance(review, dict) else None,
+            )
+        )
         yield sse(event_payload("done"))
 
     return StreamingResponse(

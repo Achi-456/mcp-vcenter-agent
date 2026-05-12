@@ -167,4 +167,8 @@ export const api = {
   getTools: () => apiGet<ToolListResponse>('/api/v1/tools'),
   getSessions: () => apiGet<unknown>('/api/v1/sessions'),
   getAuditEvents: () => apiGet<unknown>('/api/v1/audit/events'),
+  getLlmProviders: () => apiGet<unknown>('/api/v1/llm/providers'),
+  getLlmModels: (provider: string) => apiGet<unknown>(`/api/v1/llm/models?provider=${encodeURIComponent(provider)}`, { timeoutMs: 20000 }),
+  getLlmStatus: () => apiGet<unknown>('/api/v1/llm/status'),
+  configureLlmProvider: (provider: string, apiKey: string) => apiPost<unknown>('/api/v1/llm/configure', { provider, api_key: apiKey }),
 }

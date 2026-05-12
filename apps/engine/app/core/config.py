@@ -13,6 +13,16 @@ class Settings(BaseSettings):
     )
     backend_timeout_seconds: float = Field(default=60.0, alias="BACKEND_TIMEOUT_SECONDS")
     internal_tool_api_token: str | None = Field(default=None, alias="INTERNAL_TOOL_API_TOKEN")
+    llm_enabled: bool = Field(default=False, alias="LLM_ENABLED")
+    llm_provider: str = Field(default="openai", alias="LLM_PROVIDER")
+    llm_model: str = Field(default="gpt-5.4-mini", alias="LLM_MODEL")
+    llm_timeout_seconds: float = Field(default=30.0, alias="LLM_TIMEOUT_SECONDS")
+    llm_temperature: float = Field(default=0.2, alias="LLM_TEMPERATURE")
+    llm_report_writer_enabled: bool = Field(default=True, alias="LLM_REPORT_WRITER_ENABLED")
+    llm_reviewer_enabled: bool = Field(default=True, alias="LLM_REVIEWER_ENABLED")
+    llm_max_input_chars: int = Field(default=60000, alias="LLM_MAX_INPUT_CHARS")
+    openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
+    gemini_api_key: str | None = Field(default=None, alias="GEMINI_API_KEY")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
 

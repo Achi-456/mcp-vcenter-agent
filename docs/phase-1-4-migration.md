@@ -1,51 +1,49 @@
-# Phase 1.4 — MCP Server Tool Registry
+You are working on my AgenticOps vCenter Agentic Ops Platform.
 
-## Architecture Decision
+Before coding, read these files:
 
-The canonical tool registry lives in the **MCP Server** (`apps/mcp/`), not the Agent Engine. Per AGENTS.md, the MCP server is the source of truth for tool definitions, schemas, and execution. The Agent Engine queries the MCP server for tool discovery and dispatch.
+- AGENTS.md
+- knowledge/00-current-target-architecture.md
+- knowledge/fastapi-backend-architecture-knowledge.md
+- knowledge/database-architecture-knowledge.md
+- knowledge/agentic-flow-knowledge.md
+- knowledge/tool-risk-policy.md
+- knowledge/api-contract-v1.md
+- knowledge/sse-event-contract.md
+- knowledge/validation-prompts.md
+- knowledge/vcenter-tools/(all files)
+Do not modify code yet.
 
-```
-Frontend → FastAPI → Agent Engine → MCP Server → vCenter (pyVmomi)
-                    ↑ proxy                 ↑ tool registry + execution
-```
+Inspect:
 
-## Tool Categories
+- apps/backend
+- apps/engine
+- apps/frontend only if needed
+- k8s manifests
+- existing Dockerfiles
+- existing CI/CD workflows
 
-| Category | Tools | Phase |
-|---|---|---|
-| **Inventory & Information** | list_vms, get_vm_details, list_hosts, get_host_details, get_vcenter_info, list_datastores, list_networks, list_clusters, get_vm_stats | 1.4 |
-| **VM Management** | power_on_vm, power_off_vm, reboot_guest, reset_vm, suspend_vm, create_vm, clone_vm, delete_vm, rename_vm, migrate_vm, change_vm_network | Future |
-| **VM Snapshots** | list_snapshots, create_snapshot, revert_to_snapshot, delete_snapshot | Future |
-| **Host Management** | enter_maintenance_mode, exit_maintenance_mode | Future |
-| **Monitoring & Events** | get_active_alarms, get_recent_events | 1.4 |
-| **Context Helpers** | get_environment_overview, get_powered_off_vms, get_datastore_health, get_rke2_vms | 1.4 |
-| **General & Utility** | list_available_tools, govc_command, web_search | 1.4/Partial |
+Return a discovery report with:
 
-## Risk Levels
+1. Current FastAPI backend structure
+2. Existing routers
+3. Existing services
+4. Existing database/Redis usage
+5. Existing settings/secrets flow
+6. Existing tool registry implementation
+7. Existing audit/session storage if any
+8. Existing health endpoints
+9. Existing chat/agent stream flow
+10. Gaps compared to the knowledge files
+11. Minimal implementation plan for Phase 1 FastAPI Foundation Pack
+12. Exact files you propose to change
+13. Exact files you propose to create
+14. Risks before coding
+15. Verification commands after coding
 
-| Level | Phase 1.4 Behavior |
-|---|---|
-| `read_only` | Fully enabled, executable |
-| `low_risk` | Listed but disabled |
-| `approval_required` | Listed, marked "Approval required", blocked |
-| `destructive` | Listed, marked "Destructive / disabled", blocked |
-
-## Key Design Decisions
-
-1. **MCP server is the tool registry** — tools defined once in `apps/mcp/app/tools/registry.py`, consumed by engine and FastAPI
-2. **Engine calls MCP for tools** — `GET http://mcp-server.agentic-app.svc:8081/tools` for discovery
-3. **Engine calls MCP for execution** — `POST http://mcp-server.agentic-app.svc:8081/execute` for tool dispatch
-4. **Dangerous tools are visible but blocked** — listed in registry with `enabled: false`, `risk: "destructive"`
-5. **VM details via pyVmomi only** — no govc free-form shell commands for VM inspection
-
-## Migration Map — Old → New
-
-| Old (Local Docker) | New (RKE2 Cluster) |
-|---|---|
-| `app/tools/vcenter.py` — all tools in one file | `apps/mcp/app/tools/` — structured registry + execution modules |
-| `app/tools/registry.py` — dynamic introspection | `apps/mcp/app/tools/registry.py` — static `ToolDef` dataclass list |
-| `app/agent/engine.py` — multi-turn while-loop | `apps/engine/app/graph/` — LangGraph nodes |
-| `app/agent/safety.py` — CLI confirmation | `apps/engine/app/safety/classifier.py` — pattern-based blocking |
-| `app/ui/pages/agent.py` — NiceGUI run log | `apps/frontend/components/chat/ai-assistant-panel.tsx` — React SSE panel |
-| `app/agent/prompts.py` — system prompts | `apps/engine/app/graph/nodes/` — injected per-node |
-| Global singleton `_conn` | K8s Secret-backed factory pattern |
+Important rules:
+- Do not write code.
+- Do not rename apps/frontend, apps/backend, or apps/engine.
+- Do not replace FastAPI, Next.js, LangGraph, LangChain, Postgres, Redis, Kubernetes, or pyVmomi.
+- Do not implement destructive infrastructure actions.
+- Do not expose or store secrets.
