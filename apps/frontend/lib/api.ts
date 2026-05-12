@@ -42,7 +42,10 @@ async function parseJson(response: Response): Promise<unknown> {
   }
 }
 
-export async function apiGet<T>(path: string, init?: RequestInit): Promise<ApiEnvelope<T>> {
+export async function apiGet<T>(path: string, init?: RequestInit & { timeoutMs?: number }): Promise<ApiEnvelope<T>> {
+  const controller = new AbortController()
+  const timeout = window.setTimeout(() => controller.abort(), init?.timeoutMs ?? 12000)
+
   try {
     const response = await fetch(joinUrl(path), {
       ...init,
@@ -51,6 +54,7 @@ export async function apiGet<T>(path: string, init?: RequestInit): Promise<ApiEn
         ...(init?.headers ?? {}),
       },
       cache: 'no-store',
+      signal: init?.signal ?? controller.signal,
     })
 
     const payload = await parseJson(response)
@@ -103,14 +107,48 @@ export async function apiGet<T>(path: string, init?: RequestInit): Promise<ApiEn
 
     return {
       ok: false,
-      error_code: 'API_UNREACHABLE',
-      message: error instanceof Error ? error.message : 'API request failed.',
+      error_code: error instanceof DOMException && error.name === 'AbortError' ? 'API_TIMEOUT' : 'API_UNREACHABLE',
+      message:
+        error instanceof DOMException && error.name === 'AbortError'
+          ? 'API request timed out.'
+          : error instanceof Error
+            ? error.message
+            : 'API request failed.',
       details: {},
     }
+  } finally {
+    window.clearTimeout(timeout)
   }
 }
 
 export const api = {
   getHealthServices: () => apiGet<ServiceHealthMap>('/api/v1/health/services'),
+  getEnvironment: () => apiGet<unknown>('/api/v1/context/environment'),
+  getVms: () => apiGet<unknown>('/api/v1/inventory/vms'),
+  getHosts: () => apiGet<unknown>('/api/v1/inventory/hosts'),
+  getDatastores: () => apiGet<unknown>('/api/v1/inventory/datastores'),
+  getDatastoreHealth: () => apiGet<unknown>('/api/v1/context/datastore-health'),
+  getVmDetails: (name: string) => apiGet<unknown>(`/api/v1/context/vm-details?name=${encodeURIComponent(name)}`),
+  getHostDetails: (name: string) => apiGet<unknown>(`/api/v1/context/host-details?name=${encodeURIComponent(name)}`),
+  getAlarms: () => apiGet<unknown>('/api/v1/monitoring/alarms'),
+  getEvents: () => apiGet<unknown>('/api/v1/monitoring/events?limit=50'),
+  getRke2Vms: () => apiGet<unknown>('/api/v1/context/rke2-vms'),
+  getGovcAbout: () => apiGet<unknown>('/api/v1/govc/about'),
+  getGovcVmInfo: (name: string) => apiGet<unknown>(`/api/v1/govc/vm-info?name=${encodeURIComponent(name)}`),
+  getGovcHostInfo: (name: string) => apiGet<unknown>(`/api/v1/govc/host-info?name=${encodeURIComponent(name)}`),
+  getGovcDatastoreInfo: () => apiGet<unknown>('/api/v1/govc/datastore-info'),
+  getGovcEvents: () => apiGet<unknown>('/api/v1/govc/events'),
+  getGovcVolumeLs: () => apiGet<unknown>('/api/v1/govc/volume-ls'),
+  getVsphereRestAbout: () => apiGet<unknown>('/api/v1/vsphere-rest/about'),
+  getVsphereRestApplianceHealth: () => apiGet<unknown>('/api/v1/vsphere-rest/appliance/health'),
+  getVsphereRestTagCategories: () => apiGet<unknown>('/api/v1/vsphere-rest/tag-categories'),
+  getVsphereRestTags: () => apiGet<unknown>('/api/v1/vsphere-rest/tags'),
+  getVsphereRestAttachedTags: (objectId: string) => apiGet<unknown>(`/api/v1/vsphere-rest/tags/attached?object_id=${encodeURIComponent(objectId)}`),
+  getVsphereRestContentLibraries: () => apiGet<unknown>('/api/v1/vsphere-rest/content-libraries'),
+  getVsphereRestLibraryItems: (libraryId: string) => apiGet<unknown>(`/api/v1/vsphere-rest/content-libraries/${encodeURIComponent(libraryId)}/items`),
+  getVsphereRestRecentTasks: () => apiGet<unknown>('/api/v1/vsphere-rest/tasks/recent'),
+  getVcenterStatus: () => apiGet<unknown>('/api/v1/connections/vcenter/status'),
+  getMcpDefaultStatus: () => apiGet<unknown>('/api/v1/mcp/servers/default/status'),
+  getMcpTools: () => apiGet<unknown>('/api/v1/mcp/tools'),
   getTools: () => apiGet<ToolListResponse>('/api/v1/tools'),
 }

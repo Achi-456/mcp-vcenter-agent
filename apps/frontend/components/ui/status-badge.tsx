@@ -12,9 +12,11 @@ export function StatusBadge({ status }: StatusBadgeProps) {
   const tone =
     normalized.includes('healthy') || normalized.includes('online') || normalized.includes('ok')
       ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+      : normalized.includes('checking') || normalized.includes('refreshing') || normalized.includes('safe')
+        ? 'border-ops-info bg-ops-info/35 text-ops-navy'
       : normalized.includes('degraded') || normalized.includes('warning')
         ? 'border-amber-200 bg-amber-50 text-amber-700'
-        : normalized.includes('offline') || normalized.includes('error') || normalized.includes('failed')
+      : normalized.includes('offline') || normalized.includes('error') || normalized.includes('failed')
           ? 'border-red-200 bg-red-50 text-red-700'
           : 'border-slate-200 bg-slate-50 text-slate-600'
 

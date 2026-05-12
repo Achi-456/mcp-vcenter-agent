@@ -1,82 +1,73 @@
 'use client'
 
-import { useCallback, useMemo } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { api } from '@/lib/api'
-import { ErrorState, LoadingState, PageHeader, RefreshButton, RiskBadge, SectionCard, StatusBadge, ToolBadge } from '@/components/ui'
+import { formatDate } from '@/lib/dashboard-data'
+import { normalizeTools } from '@/lib/tools-data'
+import { ErrorState, LoadingState, PageHeader, RefreshButton, SectionCard, StatusBadge } from '@/components/ui'
+import { ToolFilters, ToolRegistryTable, ToolSummaryCards } from '@/components/tools'
 import { useApiResource } from '@/hooks/use-api-resource'
-import type { ToolListResponse, ToolSpec } from '@/lib/types'
-
-function normalizeTools(payload: ToolListResponse | null): ToolSpec[] {
-  if (!payload) return []
-  if (Array.isArray(payload)) return payload
-  if (Array.isArray(payload.tools)) return payload.tools
-  if (Array.isArray(payload.items)) return payload.items
-  return []
-}
 
 export default function ToolsPage() {
-  const loadTools = useCallback(() => api.getTools(), [])
-  const toolsState = useApiResource(loadTools)
+  const [search, setSearch] = useState('')
+  const [backend, setBackend] = useState('all')
+  const [risk, setRisk] = useState('all')
+  const [enabled, setEnabled] = useState('all')
+  const [implemented, setImplemented] = useState('all')
+  const toolsState = useApiResource(useCallback(() => api.getTools(), []))
   const tools = useMemo(() => normalizeTools(toolsState.data), [toolsState.data])
+
+  const filteredTools = useMemo(
+    () =>
+      tools.filter((tool) => {
+        const query = search.toLowerCase().trim()
+        const searchMatch =
+          !query ||
+          [tool.name, tool.displayName, tool.description].some((value) => value.toLowerCase().includes(query))
+        const backendMatch = backend === 'all' || tool.backend === backend
+        const riskMatch = risk === 'all' || tool.riskLevel === risk
+        const enabledMatch = enabled === 'all' || (enabled === 'enabled' ? tool.enabled : !tool.enabled)
+        const implementedMatch = implemented === 'all' || (implemented === 'implemented' ? tool.implemented : !tool.implemented)
+        return searchMatch && backendMatch && riskMatch && enabledMatch && implementedMatch
+      }),
+    [backend, enabled, implemented, risk, search, tools],
+  )
 
   return (
     <div className="space-y-6">
       <PageHeader
         eyebrow="Governance"
-        title="Tool Registry"
-        description="Platform-wide catalog of governed tools. Phase 9A shows metadata only and never exposes arbitrary MCP execution."
+        title="Tools"
+        description="ToolRegistry governance and backend capability map. Metadata only; no execute buttons."
         action={<RefreshButton onRefresh={toolsState.refresh} isRefreshing={toolsState.isRefreshing} />}
       />
 
-      {toolsState.isLoading ? <LoadingState label="Loading tool registry..." /> : null}
+      <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-ops-steel/10 bg-white px-4 py-3 text-sm text-ops-muted shadow-card">
+        <StatusBadge status={toolsState.error ? 'degraded' : toolsState.isRefreshing ? 'refreshing' : 'healthy'} />
+        <span>Last updated: {formatDate(toolsState.lastUpdated)}</span>
+        {toolsState.isRefreshing ? <span className="font-semibold text-ops-steel">Refreshing old data in place...</span> : null}
+      </div>
+
+      {toolsState.isLoading ? <LoadingState label="Loading ToolRegistry metadata..." /> : null}
       {toolsState.error ? <ErrorState message={toolsState.error} code={toolsState.errorCode} /> : null}
 
-      <SectionCard title="Registered Tools" description="Read from GET /api/v1/tools.">
-        <div className="overflow-x-auto">
-          <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
-            <thead>
-              <tr className="text-xs uppercase tracking-wide text-ops-muted">
-                <th className="border-b border-ops-steel/10 px-3 py-3">Tool</th>
-                <th className="border-b border-ops-steel/10 px-3 py-3">Backend</th>
-                <th className="border-b border-ops-steel/10 px-3 py-3">Risk</th>
-                <th className="border-b border-ops-steel/10 px-3 py-3">Enabled</th>
-                <th className="border-b border-ops-steel/10 px-3 py-3">Implemented</th>
-                <th className="border-b border-ops-steel/10 px-3 py-3">Approval</th>
-              </tr>
-            </thead>
-            <tbody>
-              {tools.map((tool, index) => (
-                <tr key={`${tool.name ?? 'tool'}-${index}`} className="hover:bg-ops-cream/70">
-                  <td className="border-b border-ops-steel/10 px-3 py-3">
-                    <div className="font-mono text-xs font-semibold text-ops-ink">{tool.name ?? tool.display_name ?? 'unnamed_tool'}</div>
-                    {tool.description ? <div className="mt-1 max-w-md text-xs text-ops-muted">{tool.description}</div> : null}
-                  </td>
-                  <td className="border-b border-ops-steel/10 px-3 py-3">
-                    <ToolBadge label={tool.backend ?? 'unknown'} />
-                  </td>
-                  <td className="border-b border-ops-steel/10 px-3 py-3">
-                    <RiskBadge risk={tool.risk_level} />
-                  </td>
-                  <td className="border-b border-ops-steel/10 px-3 py-3">
-                    <StatusBadge status={tool.enabled === true ? 'enabled' : 'disabled'} />
-                  </td>
-                  <td className="border-b border-ops-steel/10 px-3 py-3">
-                    <StatusBadge status={tool.implemented === true ? 'implemented' : 'not implemented'} />
-                  </td>
-                  <td className="border-b border-ops-steel/10 px-3 py-3">
-                    <StatusBadge status={tool.requires_approval === true ? 'approval required' : 'not required'} />
-                  </td>
-                </tr>
-              ))}
-              {!tools.length && !toolsState.isLoading ? (
-                <tr>
-                  <td className="px-3 py-8 text-center text-sm text-ops-muted" colSpan={6}>
-                    No tool metadata returned yet.
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
+      <ToolSummaryCards tools={tools} />
+
+      <SectionCard title="Registered Tools" description={`Showing ${filteredTools.length} of ${tools.length} tools from /api/v1/tools.`}>
+        <div className="space-y-4">
+          <ToolFilters
+            search={search}
+            onSearchChange={setSearch}
+            backend={backend}
+            onBackendChange={setBackend}
+            risk={risk}
+            onRiskChange={setRisk}
+            enabled={enabled}
+            onEnabledChange={setEnabled}
+            implemented={implemented}
+            onImplementedChange={setImplemented}
+          />
+          <ToolRegistryTable tools={filteredTools} />
         </div>
       </SectionCard>
     </div>

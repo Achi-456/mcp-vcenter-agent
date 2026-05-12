@@ -13,7 +13,11 @@ type ResourceState<T> = {
   refresh: () => Promise<void>
 }
 
-export function useApiResource<T>(loader: () => Promise<ApiEnvelope<T>>): ResourceState<T> {
+type ResourceOptions = {
+  refreshIntervalMs?: number
+}
+
+export function useApiResource<T>(loader: () => Promise<ApiEnvelope<T>>, options: ResourceOptions = {}): ResourceState<T> {
   const [data, setData] = useState<T | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [errorCode, setErrorCode] = useState<string | null>(null)
@@ -42,6 +46,15 @@ export function useApiResource<T>(loader: () => Promise<ApiEnvelope<T>>): Resour
   useEffect(() => {
     void refresh()
   }, [refresh])
+
+  useEffect(() => {
+    if (!options.refreshIntervalMs) return
+    const interval = window.setInterval(() => {
+      void refresh()
+    }, options.refreshIntervalMs)
+
+    return () => window.clearInterval(interval)
+  }, [options.refreshIntervalMs, refresh])
 
   return useMemo(
     () => ({
