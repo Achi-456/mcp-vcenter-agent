@@ -1,5 +1,5 @@
 import type { ChatMessage } from '@/lib/types'
-import { ChatEventCard } from './event-cards'
+import { AssistantAnswer } from './assistant-answer'
 
 export function ChatMessageList({ messages }: { messages: ChatMessage[] }) {
   if (!messages.length) {
@@ -26,18 +26,7 @@ export function ChatMessageList({ messages }: { messages: ChatMessage[] }) {
           )
         }
 
-        return (
-          <div key={message.id} className="space-y-3">
-            {(message.events ?? []).map((event) => (
-              <ChatEventCard key={event.id} event={event} />
-            ))}
-            {!message.events?.length ? (
-              <div className="rounded-2xl border border-ops-steel/10 bg-white p-4 text-sm text-ops-muted shadow-sm">
-                Waiting for Agent Engine events...
-              </div>
-            ) : null}
-          </div>
-        )
+        return <AssistantAnswer key={message.id} message={message} />
       })}
     </div>
   )

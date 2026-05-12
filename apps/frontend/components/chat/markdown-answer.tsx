@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react'
+
 function inlineMarkdown(text: string) {
   const segments = text.split(/(`[^`]+`|\*\*[^*]+\*\*)/g)
 
@@ -22,10 +24,23 @@ function inlineMarkdown(text: string) {
   })
 }
 
+function isTableSeparator(line: string) {
+  return /^\|?[\s:-]+\|[\s|:-]+$/.test(line)
+}
+
+function parseTableRow(line: string) {
+  return line
+    .replace(/^\|/, '')
+    .replace(/\|$/, '')
+    .split('|')
+    .map((cell) => cell.trim())
+}
+
 export function MarkdownAnswer({ content }: { content: string }) {
   const lines = content.split('\n')
   const blocks: ReactNode[] = []
   let listItems: string[] = []
+  let tableRows: string[][] = []
 
   function flushList(key: string) {
     if (!listItems.length) return
@@ -39,20 +54,66 @@ export function MarkdownAnswer({ content }: { content: string }) {
     listItems = []
   }
 
+  function flushTable(key: string) {
+    if (!tableRows.length) return
+    const [header, ...rows] = tableRows
+
+    blocks.push(
+      <div key={key} className="my-4 overflow-x-auto rounded-xl border border-ops-steel/10">
+        <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
+          <thead className="bg-ops-cream">
+            <tr>
+              {header.map((cell, index) => (
+                <th key={`${key}-head-${index}`} className="border-b border-ops-steel/10 px-3 py-2 font-semibold text-ops-ink">
+                  {inlineMarkdown(cell)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, rowIndex) => (
+              <tr key={`${key}-row-${rowIndex}`}>
+                {row.map((cell, cellIndex) => (
+                  <td key={`${key}-cell-${rowIndex}-${cellIndex}`} className="border-b border-ops-steel/10 px-3 py-2 text-ops-muted">
+                    {inlineMarkdown(cell)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>,
+    )
+    tableRows = []
+  }
+
   lines.forEach((line, index) => {
     const trimmed = line.trim()
 
     if (!trimmed) {
       flushList(`list-${index}`)
+      flushTable(`table-${index}`)
+      return
+    }
+
+    if (isTableSeparator(trimmed)) {
+      return
+    }
+
+    if (trimmed.includes('|')) {
+      flushList(`list-${index}`)
+      tableRows.push(parseTableRow(trimmed))
       return
     }
 
     if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+      flushTable(`table-${index}`)
       listItems.push(trimmed.slice(2))
       return
     }
 
     flushList(`list-${index}`)
+    flushTable(`table-${index}`)
 
     if (trimmed.startsWith('### ')) {
       blocks.push(
@@ -89,7 +150,7 @@ export function MarkdownAnswer({ content }: { content: string }) {
   })
 
   flushList('list-final')
+  flushTable('table-final')
 
-  return <div className="prose prose-sm max-w-none text-ops-ink">{blocks}</div>
+  return <div className="max-w-none text-sm leading-7 text-ops-ink">{blocks}</div>
 }
-import type { ReactNode } from 'react'
