@@ -144,7 +144,10 @@ async def run_agent(request: RunRequest) -> StreamingResponse:
                 content=final_state.get("final_answer", ""),
                 final_answer_source=final_state.get("final_answer_source", "deterministic"),
                 llm_used=final_state.get("llm_used", False),
+                llm_provider=final_state.get("llm_provider"),
+                llm_model=final_state.get("llm_model"),
                 reviewer_passed=review.get("passed") if isinstance(review, dict) else None,
+                fallback_reason=final_state.get("fallback_reason") or final_state.get("llm_error"),
             )
         )
         yield sse(event_payload("done"))

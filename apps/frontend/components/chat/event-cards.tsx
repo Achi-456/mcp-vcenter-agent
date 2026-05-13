@@ -127,6 +127,8 @@ export function ValidationCard({ event }: { event: ChatStreamEvent }) {
 
 export function FinalAnswerCard({ event }: { event: ChatStreamEvent }) {
   const content = value(event.payload, 'content', '')
+  const answerSource = value(event.payload, 'final_answer_source', '')
+  const answerSourceLabel = answerSource === 'llm' ? 'LLM answer' : answerSource === 'deterministic' ? 'Deterministic fallback' : ''
 
   async function copyAnswer() {
     await navigator.clipboard.writeText(content)
@@ -134,6 +136,11 @@ export function FinalAnswerCard({ event }: { event: ChatStreamEvent }) {
 
   return (
     <CardShell title="Final Answer">
+      {answerSourceLabel ? (
+        <span className="mb-3 inline-flex rounded-full border border-ops-steel/15 bg-ops-cream px-3 py-1 text-xs font-semibold text-ops-steel">
+          {answerSourceLabel}
+        </span>
+      ) : null}
       <MarkdownAnswer content={content} />
       {content.includes('No action was taken') ? (
         <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">

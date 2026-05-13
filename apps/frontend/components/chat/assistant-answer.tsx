@@ -17,6 +17,14 @@ function finalAnswer(events: ChatStreamEvent[]) {
   return content.replace(/(No action was taken\.\s*){2,}/gi, 'No action was taken.')
 }
 
+function finalSource(events: ChatStreamEvent[]) {
+  const finalEvent = [...events].reverse().find((event) => event.type === 'final')
+  const source = finalEvent ? value(finalEvent.payload, 'final_answer_source', '') : ''
+  if (source === 'llm') return 'LLM answer'
+  if (source === 'deterministic') return 'Deterministic fallback'
+  return ''
+}
+
 function blockedAnswer(events: ChatStreamEvent[]) {
   const safety = events.find((event) => event.type === 'safety_check' && event.payload.allowed === false)
   if (!safety) return ''
@@ -39,6 +47,7 @@ export function AssistantAnswer({ message }: { message: ChatMessage }) {
   const hasDone = events.some((event) => event.type === 'done')
   const blocked = events.some((event) => event.type === 'safety_check' && event.payload.allowed === false)
   const content = finalAnswer(events) || blockedAnswer(events) || errorAnswer(events)
+  const answerSource = finalSource(events)
   const answerTone = blocked ? 'border-red-200 bg-red-50' : 'border-ops-steel/10 bg-white'
 
   return (
@@ -48,7 +57,10 @@ export function AssistantAnswer({ message }: { message: ChatMessage }) {
           <p className="text-sm font-semibold text-ops-ink">AgenticOps Assistant</p>
           <p className="mt-1 text-xs text-ops-muted">Final answer first. Execution trace is collapsed below.</p>
         </div>
-        <StatusBadge status={blocked ? 'blocked' : hasDone ? 'complete' : 'streaming'} />
+        <div className="flex flex-wrap items-center gap-2">
+          {answerSource ? <span className="rounded-full border border-ops-steel/15 bg-ops-cream px-3 py-1 text-xs font-semibold text-ops-steel">{answerSource}</span> : null}
+          <StatusBadge status={blocked ? 'blocked' : hasDone ? 'complete' : 'streaming'} />
+        </div>
       </div>
 
       {!content ? <LiveProgress events={events} /> : null}

@@ -30,6 +30,7 @@ class AgentState(TypedDict, total=False):
     llm_review: dict[str, Any] | None
     llm_used: bool
     llm_error: str | None
+    fallback_reason: str | None
     final_answer_source: str
     final_answer: str
     errors: list[dict[str, Any]]

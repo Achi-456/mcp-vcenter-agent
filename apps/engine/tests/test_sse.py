@@ -35,6 +35,13 @@ async def test_sse_emits_standard_sequence(monkeypatch) -> None:
         "final",
         "done",
     ]
+    final = next(event for event in events if event["type"] == "final")
+    assert final["llm_used"] is False
+    assert final["final_answer_source"] == "deterministic"
+    assert "llm_provider" in final
+    assert "llm_model" in final
+    assert "reviewer_passed" in final
+    assert final["fallback_reason"] == "LLM_DISABLED"
 
 
 @pytest.mark.asyncio

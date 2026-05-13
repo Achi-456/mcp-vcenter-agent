@@ -49,6 +49,7 @@ async def test_llm_disabled_uses_deterministic_answer(monkeypatch) -> None:
     assert state["final_answer_source"] == "deterministic"
     assert state["llm_used"] is False
     assert state["llm_error"] == "LLM_DISABLED"
+    assert state["fallback_reason"] == "LLM_DISABLED"
     assert state["final_answer"] == state["deterministic_answer"]
 
 
@@ -66,6 +67,7 @@ async def test_missing_api_key_uses_deterministic_answer(monkeypatch) -> None:
     assert state["final_answer_source"] == "deterministic"
     assert state["llm_used"] is False
     assert state["llm_error"] == "LLM_PROVIDER_UNCONFIGURED"
+    assert state["fallback_reason"] == "LLM_PROVIDER_UNCONFIGURED"
 
 
 @pytest.mark.asyncio
@@ -92,6 +94,7 @@ async def test_llm_report_with_reviewer_pass_becomes_final(monkeypatch) -> None:
     assert state["final_answer"] == report
     assert state["final_answer_source"] == "llm"
     assert state["llm_used"] is True
+    assert state["fallback_reason"] is None
     assert state["llm_review"]["passed"] is True
 
 
@@ -119,6 +122,7 @@ async def test_reviewer_fail_uses_deterministic_fallback(monkeypatch) -> None:
     assert state["llm_used"] is False
     assert state["final_answer"] == state["deterministic_answer"]
     assert state["llm_review"]["fallback_required"] is True
+    assert state["fallback_reason"] == "LLM_REVIEW_FAILED"
 
 
 @pytest.mark.asyncio
@@ -138,6 +142,7 @@ async def test_provider_timeout_uses_deterministic_fallback(monkeypatch) -> None
     assert state["final_answer_source"] == "deterministic"
     assert state["llm_used"] is False
     assert state["llm_error"] == "LLMProviderTimeoutError"
+    assert state["fallback_reason"] == "LLMProviderTimeoutError"
 
 
 def test_redaction_removes_secrets_before_llm_call() -> None:

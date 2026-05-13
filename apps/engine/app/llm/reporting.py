@@ -126,9 +126,14 @@ async def select_final_answer(state: AgentState) -> dict:
             "final_answer": state["llm_report"],
             "llm_used": True,
             "final_answer_source": "llm",
+            "fallback_reason": None,
         }
+    fallback_reason = state.get("llm_error")
+    if review.get("fallback_required") is True:
+        fallback_reason = fallback_reason or "LLM_REVIEW_FAILED"
     return {
         "final_answer": state.get("deterministic_answer") or state.get("final_answer") or "",
         "llm_used": False,
         "final_answer_source": "deterministic",
+        "fallback_reason": fallback_reason,
     }

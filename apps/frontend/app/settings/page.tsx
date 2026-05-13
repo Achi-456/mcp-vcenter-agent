@@ -69,21 +69,60 @@ export default function SettingsPage() {
     .slice(0, 30)
 
   const currentProvider = providerRows.find((p) => p.id === selectedProvider) || { id: selectedProvider, configured: false }
+  const llmStatusData = objectFrom(llmStatus.data)
+  const runtimeConfigured = llmStatusData.engine_runtime_configured === true
+  const backendDiscoveryConfigured = llmStatusData.backend_discovery_configured === true
+  const missingRequirements = arrayFrom(llmStatusData.missing_requirements).map((item) => String(item))
+  const runtimeEnvKey = selectedProvider === 'openai' ? 'OPENAI_API_KEY' : 'GEMINI_API_KEY'
+  const k8sInstructions = [
+    `kubectl create secret generic agentic-llm-provider -n agentic-agents --from-literal=${runtimeEnvKey}="<paste-key-here>" --dry-run=client -o yaml | kubectl apply -f -`,
+    '',
+    'Agent Engine deployment env:',
+    '- name: LLM_ENABLED',
+    '  value: "true"',
+    '- name: LLM_PROVIDER',
+    `  value: "${selectedProvider}"`,
+    '- name: LLM_MODEL',
+    '  value: "<selected-model>"',
+    `- name: ${runtimeEnvKey}`,
+    '  valueFrom:',
+    '    secretKeyRef:',
+    '      name: agentic-llm-provider',
+    `      key: ${runtimeEnvKey}`,
+  ].join('\n')
 
   async function handleSaveKey() {
     if (!apiKey.trim()) return
     setIsConfiguring(true)
+    setActionError(null)
+    setActionMessage(null)
     const result = await api.configureLlmProvider(selectedProvider, apiKey)
     if (result.ok) {
-      setActionMessage(`Provider ${selectedProvider} configured successfully.`)
+      const message = safeDetail(result.data, ['message'], `Provider ${selectedProvider} configured for backend discovery.`)
+      setActionMessage(String(message))
       await llmProviders.refresh()
       await llmModels.refresh()
+      await llmStatus.refresh()
       setShowKeyModal(false)
       setApiKey('')
     } else {
       setActionError(result.message)
     }
     setIsConfiguring(false)
+  }
+
+  function handleProviderChange(provider: string) {
+    setSelectedProvider(provider)
+    const selected = providerRows.find((item) => item.id === provider)
+    if (selected && selected.configured !== true) {
+      setApiKey('')
+      setShowKeyModal(true)
+    }
+  }
+
+  async function copyRuntimeInstructions() {
+    await navigator.clipboard.writeText(k8sInstructions)
+    setActionMessage('Kubernetes runtime instructions copied.')
   }
 
   async function runAction(kind: 'test' | 'reconnect') {
@@ -232,19 +271,32 @@ export default function SettingsPage() {
               title="Configured Runtime"
               status={safeStatus(llmStatus.data)}
               rows={[
-                { label: 'Enabled', value: safeDetail(llmStatus.data, ['enabled'], 'unknown') },
-                { label: 'Provider', value: safeDetail(llmStatus.data, ['provider'], 'not configured') },
-                { label: 'Model', value: safeDetail(llmStatus.data, ['model'], 'not configured') },
-                { label: 'Secret status', value: safeDetail(llmStatus.data, ['status'], 'unknown') },
+                { label: 'LLM enabled', value: safeDetail(llmStatus.data, ['llm_enabled'], 'unknown') },
+                { label: 'Active provider', value: safeDetail(llmStatus.data, ['active_provider'], 'not configured') },
+                { label: 'Active model', value: safeDetail(llmStatus.data, ['active_model'], 'not configured') },
+                { label: 'Backend discovery', value: backendDiscoveryConfigured ? 'configured' : 'not configured' },
+                { label: 'Agent Engine runtime', value: runtimeConfigured ? 'configured' : 'not configured' },
               ]}
             />
+            {!runtimeConfigured ? (
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-800">
+                <p className="font-semibold">Model discovery may work, but Agent Engine will not use this provider until the runtime secret and deployment environment are configured.</p>
+                {missingRequirements.length ? (
+                  <ul className="mt-2 list-disc space-y-1 pl-5">
+                    {missingRequirements.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            ) : null}
             <div className="rounded-2xl border border-ops-steel/10 bg-white p-5 shadow-card">
               <div className="flex items-end gap-3">
                 <label className="flex-1 text-xs font-bold uppercase tracking-[0.18em] text-ops-muted">
                   Provider
                   <select
                     value={selectedProvider}
-                    onChange={(event) => setSelectedProvider(event.target.value)}
+                    onChange={(event) => handleProviderChange(event.target.value)}
                     className="mt-2 w-full rounded-xl border border-ops-steel/15 bg-ops-cream px-4 py-2 text-sm normal-case tracking-normal text-ops-ink"
                   >
                     {providerRows.length ? (
@@ -315,6 +367,24 @@ export default function SettingsPage() {
             </div>
             <div className="rounded-2xl border border-ops-info bg-ops-info/20 p-4 text-sm leading-6 text-ops-navy">
               Provider/model selection here is discovery-only. Runtime selection still comes from Engine environment variables so the browser never receives API keys.
+            </div>
+            <div className="rounded-2xl border border-ops-steel/10 bg-white p-5 shadow-card">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 className="font-semibold text-ops-ink">Agent Engine Runtime Instructions</h3>
+                  <p className="mt-1 text-sm leading-6 text-ops-muted">Use these commands/manifests with your own key value. No saved key is shown in the browser.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void copyRuntimeInstructions()}
+                  className="rounded-xl border border-ops-steel/15 bg-white px-4 py-2 text-sm font-semibold text-ops-ink hover:bg-ops-cream"
+                >
+                  Copy instructions
+                </button>
+              </div>
+              <pre className="mt-4 max-h-72 overflow-auto rounded-2xl bg-ops-navy p-4 text-xs leading-5 text-white">
+                <code>{k8sInstructions}</code>
+              </pre>
             </div>
           </div>
         </SectionCard>

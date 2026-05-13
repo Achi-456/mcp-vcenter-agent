@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
     gemini_api_key: str | None = Field(default=None, alias="GEMINI_API_KEY")
     llm_timeout_seconds: float = Field(default=30.0, alias="LLM_TIMEOUT_SECONDS")
+    llm_secret_name: str = Field(default="agentic-llm-provider", alias="LLM_SECRET_NAME")
+    llm_runtime_namespace: str = Field(default="agentic-agents", alias="LLM_RUNTIME_NAMESPACE")
+    llm_engine_deployment_name: str = Field(default="agent-engine", alias="LLM_ENGINE_DEPLOYMENT_NAME")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
 

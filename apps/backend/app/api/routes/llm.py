@@ -1,6 +1,7 @@
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel
 
 from app.api.deps import llm_model_dep
 from app.core.responses import success_response
@@ -11,7 +12,7 @@ router = APIRouter(prefix="/api/v1/llm", tags=["llm"])
 
 @router.get("/providers")
 async def providers(service: LLMModelService = Depends(llm_model_dep)) -> dict[str, Any]:
-    return success_response(service.providers(), source="llm_provider_discovery")
+    return success_response(await service.providers(), source="llm_provider_discovery")
 
 
 @router.get("/models")
@@ -24,14 +25,13 @@ async def models(
 
 @router.get("/status")
 async def status(service: LLMModelService = Depends(llm_model_dep)) -> dict[str, Any]:
-    return success_response(service.status(), source="llm_configuration")
+    return success_response(await service.status(), source="llm_configuration")
 
-
-from pydantic import BaseModel
 
 class ConfigureProviderSchema(BaseModel):
     provider: str
     api_key: str
+
 
 @router.post("/configure")
 async def configure(
