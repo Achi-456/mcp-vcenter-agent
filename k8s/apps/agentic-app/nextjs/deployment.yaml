@@ -21,7 +21,7 @@ spec:
         role: app-worker
       containers:
         - name: nextjs
-          image: ghcr.io/achi-456/agentic-nextjs:65ad579df2430e13b0c86ef0645857ad20820e5b
+          image: ghcr.io/achi-456/agentic-nextjs:ad6701f66faa4d7e69109cb9c4fcf2961e54514f
           ports:
             - containerPort: 3000
               name: http
