@@ -47,6 +47,30 @@ async def test_datastore_health_prompt_calls_datastore_endpoint(monkeypatch) -> 
 
 
 @pytest.mark.asyncio
+async def test_datastore_summary_prompt_calls_datastore_health(monkeypatch) -> None:
+    calls = []
+
+    async def fake_get(self, endpoint, params=None):
+        calls.append((endpoint, params))
+        return {
+            "ok": True,
+            "data": [
+                {"name": "ds-critical", "type": "VMFS", "status": "critical", "accessible": True, "used_percent": 96, "free_gb": 4, "capacity_gb": 100},
+                {"name": "ds-ok", "type": "NFS", "status": "healthy", "accessible": True, "used_percent": 40, "free_gb": 60, "capacity_gb": 100},
+            ],
+        }
+
+    monkeypatch.setattr(backend_client.BackendClient, "get", fake_get)
+    state = await get_graph().ainvoke(
+        {"session_id": "s1", "run_id": "r1", "user_message": "how may data stores does we have, summury about each"}
+    )
+    assert calls == [("/api/v1/context/datastore-health", None)]
+    assert "Datastore summary" in state["final_answer"]
+    assert "total_datastores" in state["final_answer"]
+    assert "ds-critical" in state["final_answer"]
+
+
+@pytest.mark.asyncio
 async def test_alarm_prompt_calls_alarms_endpoint(monkeypatch) -> None:
     calls = []
 
@@ -82,6 +106,53 @@ async def test_backend_error_creates_clean_final_answer(monkeypatch) -> None:
     assert state["validation"]["status"] == "failed"
     assert "VM_NOT_FOUND" in state["final_answer"]
     assert "No action was taken" in state["final_answer"]
+
+
+@pytest.mark.asyncio
+async def test_general_knowledge_does_not_call_backend(monkeypatch) -> None:
+    calls = []
+
+    async def fake_get(self, endpoint, params=None):
+        calls.append((endpoint, params))
+        return {"ok": True, "data": {}}
+
+    monkeypatch.setattr(backend_client.BackendClient, "get", fake_get)
+    state = await get_graph().ainvoke(
+        {"session_id": "s1", "run_id": "r1", "user_message": "what is your knowledge about VMware vCenter"}
+    )
+    assert calls == []
+    assert state["task_type"] == "general_knowledge"
+    assert "live environment" in state["final_answer"]
+
+
+@pytest.mark.asyncio
+async def test_model_status_does_not_call_backend(monkeypatch) -> None:
+    calls = []
+
+    async def fake_get(self, endpoint, params=None):
+        calls.append((endpoint, params))
+        return {"ok": True, "data": {}}
+
+    monkeypatch.setattr(backend_client.BackendClient, "get", fake_get)
+    state = await get_graph().ainvoke({"session_id": "s1", "run_id": "r1", "user_message": "what is your LLM model"})
+    assert calls == []
+    assert state["task_type"] == "model_status"
+    assert "LLM provider" in state["final_answer"]
+
+
+@pytest.mark.asyncio
+async def test_self_description_does_not_call_backend(monkeypatch) -> None:
+    calls = []
+
+    async def fake_get(self, endpoint, params=None):
+        calls.append((endpoint, params))
+        return {"ok": True, "data": {}}
+
+    monkeypatch.setattr(backend_client.BackendClient, "get", fake_get)
+    state = await get_graph().ainvoke({"session_id": "s1", "run_id": "r1", "user_message": "give explanation about you"})
+    assert calls == []
+    assert state["task_type"] == "self_description"
+    assert "AgenticOps" in state["final_answer"]
 
 
 @pytest.mark.asyncio

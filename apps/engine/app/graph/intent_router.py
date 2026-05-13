@@ -60,6 +60,33 @@ DESTRUCTIVE_PATTERNS: tuple[tuple[str, str], ...] = (
     ("kubectl patch", "kubectl_patch"),
 )
 V2_PATTERNS = ("csi", "kubernetes", "pvc", "pv ", "persistentvolume", "govmomi", "pbm", "cns")
+GENERAL_KNOWLEDGE_TERMS = (
+    "vmware vcenter",
+    "vcenter",
+    "vsphere",
+    "vmware tools",
+    "vmware tool",
+    "vmotion",
+    "ha",
+    "drs",
+    "datastore",
+    "data store",
+    "esxi",
+)
+TROUBLESHOOTING_MARKERS = (
+    "troubleshoot",
+    "why is",
+    "failed",
+    "failure",
+    "issue",
+    "problem",
+    "not running",
+    "not working",
+    "disconnected",
+    "full",
+    "no network",
+    "alarm",
+)
 MCP_ALLOWED_TOOLS = {
     "mcp.default.server_info",
     "mcp.default.server_time",
@@ -82,11 +109,15 @@ class Intent:
 
 def classify_intent(message: str) -> Intent:
     text = message.strip()
-    lowered = text.lower()
+    lowered = _normalize_text(text)
 
     blocked = _classify_blocked(text, lowered)
     if blocked:
         return blocked
+
+    conversation_intent = _classify_conversation(text, lowered)
+    if conversation_intent:
+        return conversation_intent
 
     mcp_intent = _classify_mcp_status(text, lowered)
     if mcp_intent:
@@ -94,9 +125,6 @@ def classify_intent(message: str) -> Intent:
 
     if any(marker in f" {lowered} " for marker in V2_PATTERNS):
         return Intent("planned_v2", "planned_v2", None, None, "read_only", None, None, {})
-
-    if lowered in {"hi", "hello", "hey", "hi there", "hello there"}:
-        return Intent("general", "greeting", None, None, "read_only", None, None, {})
 
     if "list tools" in lowered or "list down all tools" in lowered or "what tools" in lowered:
         return Intent("platform", "list_tools", None, None, "read_only", "list_tools", "/api/v1/tools", {})
@@ -121,6 +149,10 @@ def classify_intent(message: str) -> Intent:
     if inventory_intent:
         return inventory_intent
 
+    troubleshooting_intent = _classify_troubleshooting(text, lowered)
+    if troubleshooting_intent:
+        return troubleshooting_intent
+
     details_intent = _classify_details(text, lowered)
     if details_intent:
         return details_intent
@@ -130,6 +162,73 @@ def classify_intent(message: str) -> Intent:
         return Intent("vcenter", "missing_input", object_type, None, "read_only", None, None, {})
 
     return Intent("general", "unsupported", None, None, "read_only", None, None, {})
+
+
+def _normalize_text(message: str) -> str:
+    lowered = " ".join(message.lower().split())
+    replacements = {
+        "data stores": "datastores",
+        "data store": "datastore",
+        "summury": "summary",
+        "how may": "how many",
+    }
+    for source, target in replacements.items():
+        lowered = lowered.replace(source, target)
+    return lowered
+
+
+def _classify_conversation(message: str, lowered: str) -> Intent | None:
+    if lowered in {"hi", "hello", "hey", "hi there", "hello there"}:
+        return Intent("general", "greeting", None, None, "read_only", None, None, {})
+
+    if _is_model_status(lowered):
+        return Intent("platform", "model_status", None, None, "read_only", None, None, {})
+
+    if _is_self_description(lowered):
+        return Intent("platform", "self_description", None, None, "read_only", None, None, {})
+
+    if _is_general_knowledge(lowered):
+        return Intent("knowledge", "general_knowledge", None, None, "read_only", None, None, {})
+
+    return None
+
+
+def _is_self_description(lowered: str) -> bool:
+    return any(
+        marker in lowered
+        for marker in (
+            "what are you",
+            "who are you",
+            "give explanation about you",
+            "explain yourself",
+            "what can you do",
+            "what is this platform",
+            "about this platform",
+            "agenticops",
+        )
+    )
+
+
+def _is_model_status(lowered: str) -> bool:
+    return any(
+        marker in lowered
+        for marker in (
+            "what is your llm model",
+            "which model are you using",
+            "what model are you using",
+            "are you using gemini",
+            "are you using openai",
+            "deterministic or llm",
+            "your model",
+            "llm provider",
+        )
+    )
+
+
+def _is_general_knowledge(lowered: str) -> bool:
+    if any(marker in lowered for marker in ("explain ", "what is ", "what are ", "how does ", "knowledge about")):
+        return any(term in lowered for term in GENERAL_KNOWLEDGE_TERMS)
+    return False
 
 
 def _classify_blocked(message: str, lowered: str) -> Intent | None:
@@ -225,6 +324,8 @@ def _is_health_summary(lowered: str) -> bool:
 
 
 def _classify_inventory(message: str, lowered: str) -> Intent | None:
+    if _is_datastore_summary(lowered):
+        return Intent("vcenter", "inventory_summary", "datastore", None, "read_only", "get_datastore_health", "/api/v1/context/datastore-health", {})
     if "datastore health" in lowered:
         return Intent("vcenter", "datastore_health", "datastore", None, "read_only", "get_datastore_health", "/api/v1/context/datastore-health", {})
     if "critical datastore" in lowered or "warning datastore" in lowered:
@@ -243,6 +344,43 @@ def _classify_inventory(message: str, lowered: str) -> Intent | None:
         return Intent("vcenter", "list_vms", "vm", None, "read_only", "list_vms", "/api/v1/inventory/vms", {})
     if "environment" in lowered or "overview" in lowered:
         return Intent("vcenter", "environment", None, None, "read_only", "get_environment_overview", "/api/v1/context/environment", {})
+    return None
+
+
+def _is_datastore_summary(lowered: str) -> bool:
+    if "datastore" not in lowered:
+        return False
+    return any(
+        marker in lowered
+        for marker in (
+            "how many datastore",
+            "summary about each datastore",
+            "summary each datastore",
+            "show datastore summary",
+            "datastore capacity summary",
+            "list datastores with usage",
+            "datastores with usage",
+        )
+    )
+
+
+def _classify_troubleshooting(message: str, lowered: str) -> Intent | None:
+    if not any(marker in lowered for marker in TROUBLESHOOTING_MARKERS):
+        return None
+    if "datastore" in lowered or "storage" in lowered:
+        return Intent("vcenter", "troubleshooting", "datastore", None, "read_only", "get_datastore_health", "/api/v1/context/datastore-health", {})
+    if "vmotion" in lowered or "event" in lowered:
+        return Intent("vcenter", "troubleshooting", "event", None, "read_only", "get_recent_events", "/api/v1/monitoring/events", {"limit": 50})
+    if "host" in lowered or "esxi" in lowered or HOST_RE.search(message):
+        entity = extract_entity(message, prefer="host")
+        if entity:
+            return Intent("vcenter", "troubleshooting", "host", entity, "read_only", "get_host_details", "/api/v1/context/host-details", {"name": entity})
+        return Intent("vcenter", "troubleshooting", "host", None, "read_only", "get_environment_overview", "/api/v1/context/environment", {})
+    entity = extract_entity(message, prefer="vm")
+    if entity:
+        return Intent("vcenter", "troubleshooting", "vm", entity, "read_only", "get_vm_details", "/api/v1/context/vm-details", {"name": entity})
+    if "alarm" in lowered:
+        return Intent("vcenter", "troubleshooting", "alarm", None, "read_only", "get_active_alarms", "/api/v1/monitoring/alarms", {})
     return None
 
 

@@ -4,6 +4,16 @@ import re
 
 
 GENERIC_ENTITIES = {
+    "data",
+    "esxi",
+    "gemini",
+    "knowledge",
+    "llm",
+    "model",
+    "openai",
+    "storage",
+    "vmware",
+    "vsphere",
     "vcenter",
     "host",
     "hosts",
@@ -70,6 +80,7 @@ def extract_entity(message: str, *, prefer: str | None = None) -> str | None:
         r"\babout\s+(\"[^\"]+\"|'[^']+'|[^\s,?]+)",
         r"\bcheck\s+(\"[^\"]+\"|'[^']+'|[^\s,?]+)",
         r"\bverify\s+(\"[^\"]+\"|'[^']+'|[^\s,?]+)",
+        r"\bon\s+(\"[^\"]+\"|'[^']+'|[^\s,?]+)",
         r"\bis\s+(\"[^\"]+\"|'[^']+'|[^\s,?]+)\s+okay\b",
     )
     for pattern in patterns:

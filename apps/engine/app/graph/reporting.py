@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.core.config import get_settings
 from app.graph.state import AgentState
 
 
@@ -30,6 +31,34 @@ def format_final_answer(state: AgentState) -> str:
 
     if state.get("task_type") == "greeting":
         return "Hi, I'm your vCenter Agent. How can I help you with your infrastructure today?\n\nNo action was taken."
+
+    if state.get("task_type") == "self_description":
+        return (
+            "I am AgenticOps, a vCenter operations assistant for read-only infrastructure investigation.\n\n"
+            "I can inspect live vCenter data for VMs, hosts, datastores, active alarms, recent events, RKE2-related VMs, "
+            "and safe diagnostics through pyVmomi, govc, vSphere REST, and allowlisted MCP status tools.\n\n"
+            "I am read-only by default. Future write actions such as power changes, migration, snapshot changes, or deletion "
+            "must go through approval and safety checks before execution.\n\n"
+            "No action was taken."
+        )
+
+    if state.get("task_type") == "model_status":
+        settings = get_settings()
+        model = settings.llm_model if settings.llm_model else "configuration unavailable"
+        provider = settings.llm_provider if settings.llm_provider else "configuration unavailable"
+        return (
+            "Runtime model configuration:\n\n"
+            f"| Field | Value |\n| --- | --- |\n"
+            f"| LLM enabled | {settings.llm_enabled} |\n"
+            f"| LLM provider | {provider} |\n"
+            f"| LLM model | {model} |\n"
+            f"| Final answer source | {state.get('final_answer_source', 'deterministic until final selection')} |\n\n"
+            "API keys are not exposed in responses.\n\n"
+            "No action was taken."
+        )
+
+    if state.get("task_type") == "general_knowledge":
+        return f"{_general_knowledge_answer(str(state.get('user_message') or ''))}\n\nNo action was taken."
 
     if state.get("task_type") == "unsupported":
         return (
@@ -86,6 +115,8 @@ def format_final_answer(state: AgentState) -> str:
         return f"Available tool metadata:\n\n{_list_table(rows)}\n\nNo action was taken."
 
     if isinstance(data, list):
+        if task_type == "inventory_summary" and state.get("object_type") == "datastore":
+            return f"{_format_datastore_summary(data)}\n\nNo action was taken."
         title = {
             "list_vms": "VMs",
             "list_hosts": "Hosts",
@@ -101,6 +132,32 @@ def format_final_answer(state: AgentState) -> str:
         return f"{_dict_table(data)}\n\nNo action was taken."
 
     return "Request completed.\n\nNo action was taken."
+
+
+def _general_knowledge_answer(message: str) -> str:
+    lowered = message.lower()
+    note = "\n\nI can inspect your live environment if you ask for a specific VM, host, datastore, alarm, or health check."
+    if "vmware tools" in lowered:
+        return (
+            "VMware Tools is the guest integration package installed inside a VM. It improves guest shutdown/reboot handling, "
+            "time synchronization, IP and hostname reporting, quiesced snapshots, device drivers, and vCenter visibility into the guest OS."
+            + note
+        )
+    if "vmotion" in lowered:
+        return "vMotion moves a running VM from one ESXi host to another with minimal downtime, assuming shared or compatible storage, networking, and CPU compatibility are in place." + note
+    if "drs" in lowered or "ha" in lowered:
+        return (
+            "vSphere HA restarts VMs on surviving hosts after host failure. DRS balances VM placement across hosts based on resource demand and cluster policy."
+            + note
+        )
+    if "datastore" in lowered or "data store" in lowered:
+        return "A vSphere datastore is storage presented to ESXi hosts for VM files such as VMX configuration, VMDKs, snapshots, ISOs, and logs." + note
+    if "esxi" in lowered:
+        return "ESXi is VMware's bare-metal hypervisor. It runs virtual machines and reports host, networking, storage, and runtime state to vCenter." + note
+    return (
+        "VMware vCenter is the central management plane for vSphere environments. It manages ESXi hosts, clusters, VMs, datastores, networks, alarms, events, permissions, and operational workflows such as vMotion, HA, and DRS."
+        + note
+    )
 
 
 def _format_multi_tool_answer(state: AgentState) -> str:
@@ -203,6 +260,48 @@ def _format_health_summary(state: AgentState) -> str:
         f"Recommended next check: {recommendation}.\n\n"
         "No action was taken."
     )
+
+
+def _format_datastore_summary(data: list[Any]) -> str:
+    rows = [_datastore_row(item) for item in data if isinstance(item, dict)]
+    rows = [row for row in rows if row]
+    rows.sort(key=lambda row: (_datastore_status_rank(str(row.get("status", ""))), str(row.get("name") or "")))
+
+    total = len(rows)
+    critical = sum(1 for row in rows if str(row.get("status", "")).lower() == "critical")
+    warning = sum(1 for row in rows if str(row.get("status", "")).lower() == "warning")
+    healthy = sum(1 for row in rows if str(row.get("status", "")).lower() in {"healthy", "ok", "normal"})
+
+    summary_rows = [
+        {"metric": "total_datastores", "value": total},
+        {"metric": "critical", "value": critical},
+        {"metric": "warning", "value": warning},
+        {"metric": "healthy", "value": healthy},
+    ]
+    return (
+        "Datastore summary:\n\n"
+        f"{_list_table(summary_rows)}\n\n"
+        "Datastores:\n\n"
+        f"{_list_table(rows)}"
+    )
+
+
+def _datastore_row(item: dict[str, Any]) -> dict[str, Any]:
+    return _drop_empty(
+        {
+            "name": item.get("name"),
+            "type": item.get("type") or item.get("datastore_type"),
+            "status": item.get("status"),
+            "accessible": item.get("accessible"),
+            "used_percent": item.get("used_percent"),
+            "free_gb": item.get("free_gb"),
+            "capacity_gb": item.get("capacity_gb"),
+        }
+    )
+
+
+def _datastore_status_rank(status: str) -> int:
+    return {"critical": 0, "warning": 1, "healthy": 2, "ok": 2, "normal": 2}.get(status.lower(), 3)
 
 
 def _health_label(tool_name: str) -> str:
@@ -453,7 +552,7 @@ def _list_table(rows: list[dict[str, Any]]) -> str:
     if not isinstance(rows[0], dict):
         normalized = [{"value": row} for row in rows]
         return _list_table(normalized)
-    columns = [key for key in rows[0].keys() if not isinstance(rows[0].get(key), (dict, list))][:6]
+    columns = [key for key in rows[0].keys() if not isinstance(rows[0].get(key), (dict, list))][:8]
     if not columns:
         return "Rows returned, but no scalar fields are available for table display."
     header = "| " + " | ".join(columns) + " |"

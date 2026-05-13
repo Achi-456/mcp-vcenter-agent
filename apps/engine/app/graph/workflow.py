@@ -15,7 +15,15 @@ from app.llm.reporting import review_llm_report, select_final_answer, write_llm_
 def route_by_intent(state: AgentState) -> Literal["blocked_agent", "tools_agent", "vcenter_readonly_agent", "general_agent"]:
     if not state.get("allowed", True):
         return "blocked_agent"
-    if state.get("task_type") in {"greeting", "unsupported", "missing_input", "planned_v2"}:
+    if state.get("task_type") in {
+        "greeting",
+        "self_description",
+        "model_status",
+        "general_knowledge",
+        "unsupported",
+        "missing_input",
+        "planned_v2",
+    }:
         return "general_agent"
     if state.get("task_type") == "list_tools":
         return "tools_agent"

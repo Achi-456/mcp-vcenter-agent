@@ -34,6 +34,30 @@ def test_generic_words_are_not_entities() -> None:
     assert intent.entity is None
 
 
+def test_general_knowledge_prompts_do_not_select_tools() -> None:
+    for prompt in (
+        "what is your knowledge about VMware vCenter",
+        "explain vCenter",
+        "what is VMware Tools",
+        "how does datastore work",
+    ):
+        intent = classify_intent(prompt)
+        assert intent.task_type == "general_knowledge"
+        assert intent.tool_name is None
+
+
+def test_model_status_prompt_does_not_select_tools() -> None:
+    intent = classify_intent("what is your LLM model")
+    assert intent.task_type == "model_status"
+    assert intent.tool_name is None
+
+
+def test_self_description_prompt_does_not_select_tools() -> None:
+    intent = classify_intent("give explanation about you")
+    assert intent.task_type == "self_description"
+    assert intent.tool_name is None
+
+
 def test_intent_router_classifies_host_ip_with_context() -> None:
     intent = classify_intent("get details for host 172.25.188.21")
     assert intent.tool_name == "get_host_details"
@@ -121,6 +145,8 @@ def test_natural_inventory_prompts_route_correctly() -> None:
     assert classify_intent("show me all hosts").tool_name == "list_hosts"
     assert classify_intent("show me all VMs").tool_name == "list_vms"
     assert classify_intent("critical datastores?").tool_name == "get_datastore_health"
+    assert classify_intent("how may data stores does we have, summury about each").tool_name == "get_datastore_health"
+    assert classify_intent("how many datastores do we have").task_type == "inventory_summary"
 
 
 def test_host_like_prompts_route_to_host_details() -> None:
@@ -128,6 +154,13 @@ def test_host_like_prompts_route_to_host_details() -> None:
         intent = classify_intent(prompt)
         assert intent.tool_name == "get_host_details"
         assert intent.object_type == "host"
+
+
+def test_vmware_tools_issue_with_entity_routes_to_vm_context() -> None:
+    intent = classify_intent("VMware Tools issue on roshellevm02")
+    assert intent.task_type == "troubleshooting"
+    assert intent.tool_name == "get_vm_details"
+    assert intent.tool_input == {"name": "roshellevm02"}
 
 
 def test_intent_router_classifies_compare_prompt() -> None:
