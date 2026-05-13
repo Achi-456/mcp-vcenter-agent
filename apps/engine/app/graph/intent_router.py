@@ -369,6 +369,8 @@ def _classify_troubleshooting(message: str, lowered: str) -> Intent | None:
         return None
     if "datastore" in lowered or "storage" in lowered:
         return Intent("vcenter", "troubleshooting", "datastore", None, "read_only", "get_datastore_health", "/api/v1/context/datastore-health", {})
+    if "ha" in lowered or "drs" in lowered:
+        return Intent("vcenter", "troubleshooting", "alarm", None, "read_only", "get_active_alarms", "/api/v1/monitoring/alarms", {})
     if "vmotion" in lowered or "event" in lowered:
         return Intent("vcenter", "troubleshooting", "event", None, "read_only", "get_recent_events", "/api/v1/monitoring/events", {"limit": 50})
     if "host" in lowered or "esxi" in lowered or HOST_RE.search(message):
@@ -478,6 +480,19 @@ def _classify_rest(message: str, lowered: str) -> Intent | None:
 
 
 async def intent_router_node(state: AgentState) -> dict:
+    resolution = state.get("context_resolution") or {}
+    if resolution.get("reason") == "missing_context" and state.get("task_type") == "missing_input":
+        return {
+            "domain": "general",
+            "task_type": "missing_input",
+            "object_type": state.get("object_type"),
+            "entity": None,
+            "risk_level": "read_only",
+            "tool_name": None,
+            "tool_endpoint": None,
+            "tool_input": {},
+            "tool_calls": [],
+        }
     intent = classify_intent(state["user_message"])
     return {
         "domain": intent.domain,

@@ -50,7 +50,7 @@ class LLMModelService:
             missing_requirements.append("LLM_MODEL is not configured")
         key_name = PROVIDER_API_KEY_NAMES.get(provider)
         if not backend_configured and key_name:
-            missing_requirements.append(f"backend discovery {key_name} not configured")
+            missing_requirements.append(f"backend discovery credential for {provider} is not configured")
         missing_requirements.extend(runtime["missing_requirements"])
 
         ready = self.settings.llm_enabled and backend_configured and runtime["configured"] and bool(self.settings.llm_model)
@@ -119,7 +119,6 @@ class LLMModelService:
             "secret_name": self.settings.llm_secret_name,
             "secret_namespace": self.settings.k8s_namespace,
             "runtime_namespace": self.settings.llm_runtime_namespace,
-            "runtime_env_key": key_name,
             "missing_requirements": runtime["missing_requirements"],
             "message": (
                 "Backend discovery secret saved. Agent Engine runtime was not changed; "
@@ -231,7 +230,7 @@ class LLMModelService:
         env_map = self._deployment_env_map(deployment)
         mounted = self._env_is_mounted(env_map.get(key_name))
         if not mounted:
-            return {"configured": False, "missing_requirements": [f"agent-engine {key_name} not mounted"]}
+            return {"configured": False, "missing_requirements": [f"agent-engine provider credential for {provider} is not mounted"]}
 
         missing: list[str] = []
         enabled_env = env_map.get("LLM_ENABLED")

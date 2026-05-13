@@ -35,6 +35,7 @@ def build_report_writer_prompt(state: AgentState, *, max_chars: int) -> str:
         safety_json=_json(package["safety"]),
         tool_calls_json=_json(package["tool_calls"]),
         tool_results_json=_json(package["tool_results"]),
+        web_research_json=_json(package["web_research"]),
         deterministic_answer=str(state.get("deterministic_answer") or ""),
     )
     return truncate_text(prompt, max_chars)
@@ -70,6 +71,13 @@ def build_evidence_package(state: AgentState) -> dict[str, Any]:
             },
             "tool_calls": _tool_calls(state),
             "tool_results": _tool_results(state),
+            "web_research": {
+                "used": state.get("web_search_used", False),
+                "queries": state.get("web_search_queries") or [],
+                "results": state.get("web_search_results") or [],
+                "error": state.get("web_search_error"),
+                "skipped_reason": state.get("web_search_skipped_reason"),
+            },
             "deterministic_answer": state.get("deterministic_answer"),
             "allowed_actions": "read-only only",
         }
@@ -100,6 +108,13 @@ def local_review_guard(report: str, state: AgentState) -> list[str]:
         issues.append("Possible secret-bearing text present.")
     if any(marker in lowered for marker in ("delete the", "run rm", "kubectl delete", "power off", "format datastore")) and "approval" not in lowered:
         issues.append("Unsafe recommendation without approval language.")
+    web_results = state.get("web_search_results") or []
+    if web_results:
+        cited = any(str(result.get("url") or "") in report for result in web_results if isinstance(result, dict))
+        if not cited:
+            issues.append("Web sources were used but URLs were not cited.")
+        if "external knowledge" not in lowered:
+            issues.append("Web sources were used but External Knowledge section is missing.")
     return issues
 
 

@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
 import { firstUpdated, formatDate, refreshAll } from '@/lib/dashboard-data'
 import { normalizeActivities, normalizeSessions, type NormalizedSession } from '@/lib/sessions-data'
@@ -9,6 +10,7 @@ import { ErrorState, PageHeader, RefreshButton, SectionCard, StatusBadge } from 
 import { useApiResource } from '@/hooks/use-api-resource'
 
 export default function SessionsPage() {
+  const router = useRouter()
   const [search, setSearch] = useState('')
   const [selectedSession, setSelectedSession] = useState<NormalizedSession | null>(null)
   const sessions = useApiResource(useCallback(() => api.getSessions(), []))
@@ -54,7 +56,14 @@ export default function SessionsPage() {
         {sessions.error ? (
           <ErrorState title="Sessions API unavailable" message="Session history is not available from the current API yet." code={sessions.errorCode} />
         ) : null}
-        <SessionList sessions={filteredSessions} selectedId={selectedSession?.id ?? null} onSelect={setSelectedSession} />
+        <SessionList
+          sessions={filteredSessions}
+          selectedId={selectedSession?.id ?? null}
+          onSelect={(session) => {
+            setSelectedSession(session)
+            router.push(`/chat?session_id=${encodeURIComponent(session.id)}`)
+          }}
+        />
       </SectionCard>
 
       <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">

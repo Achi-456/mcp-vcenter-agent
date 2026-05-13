@@ -1,8 +1,9 @@
 'use client'
 
-import { useCallback, useMemo, useRef, useState } from 'react'
-import { apiUrl } from '@/lib/api'
-import type { ChatMessage, ChatStreamEvent, ChatEventType } from '@/lib/types'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { api, apiUrl } from '@/lib/api'
+import type { ChatMessage, ChatStreamEvent, ChatEventType, PersistedChatMessage } from '@/lib/types'
 
 const EVENT_TYPES: ChatEventType[] = [
   'start',
@@ -85,12 +86,65 @@ function finalContent(events: ChatStreamEvent[]) {
   return typeof content === 'string' ? content : ''
 }
 
-export function useChatStream() {
+function persistedToChatMessage(message: PersistedChatMessage): ChatMessage | null {
+  if (message.role !== 'user' && message.role !== 'assistant') return null
+  const events =
+    message.role === 'assistant'
+      ? [
+          {
+            id: newId('event'),
+            type: 'final' as ChatEventType,
+            timestamp: message.created_at,
+            payload: { type: 'final', content: message.content, ...(message.metadata?.final as Record<string, unknown> | undefined) },
+            raw: JSON.stringify({ type: 'final', content: message.content }),
+          },
+          {
+            id: newId('event'),
+            type: 'done' as ChatEventType,
+            timestamp: message.created_at,
+            payload: { type: 'done' },
+            raw: JSON.stringify({ type: 'done' }),
+          },
+        ]
+      : undefined
+  return {
+    id: message.id,
+    role: message.role,
+    content: message.content,
+    timestamp: message.created_at,
+    metadata: message.metadata,
+    events,
+  }
+}
+
+export function useChatStream(initialSessionId?: string | null) {
+  const router = useRouter()
   const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [sessionId, setSessionId] = useState<string | null>(null)
+  const [sessionId, setSessionId] = useState<string | null>(initialSessionId ?? null)
   const [isStreaming, setIsStreaming] = useState(false)
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false)
   const [streamError, setStreamError] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
+
+  useEffect(() => {
+    if (!initialSessionId) return
+    let cancelled = false
+    setIsLoadingHistory(true)
+    setStreamError(null)
+    void api.getSessionMessages(initialSessionId).then((response) => {
+      if (cancelled) return
+      if (response.ok) {
+        setSessionId(initialSessionId)
+        setMessages(response.data.map(persistedToChatMessage).filter((item): item is ChatMessage => Boolean(item)))
+      } else {
+        setStreamError(response.message)
+      }
+      setIsLoadingHistory(false)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [initialSessionId])
 
   const startNewSession = useCallback(() => {
     abortRef.current?.abort()
@@ -98,8 +152,10 @@ export function useChatStream() {
     setMessages([])
     setSessionId(null)
     setIsStreaming(false)
+    setIsLoadingHistory(false)
     setStreamError(null)
-  }, [])
+    router.replace('/chat')
+  }, [router])
 
   const sendMessage = useCallback(
     async (message: string) => {
@@ -161,7 +217,10 @@ export function useChatStream() {
 
             if (event.type === 'start') {
               const incomingSession = event.payload.session_id
-              if (typeof incomingSession === 'string') setSessionId(incomingSession)
+              if (typeof incomingSession === 'string') {
+                setSessionId(incomingSession)
+                router.replace(`/chat?session_id=${encodeURIComponent(incomingSession)}`)
+              }
             }
 
             setMessages((current) =>
@@ -221,10 +280,11 @@ export function useChatStream() {
       messages,
       sessionId,
       isStreaming,
+      isLoadingHistory,
       streamError,
       sendMessage,
       startNewSession,
     }),
-    [messages, sessionId, isStreaming, streamError, sendMessage, startNewSession],
+    [messages, sessionId, isStreaming, isLoadingHistory, streamError, sendMessage, startNewSession],
   )
 }

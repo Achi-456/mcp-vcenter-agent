@@ -193,6 +193,9 @@ def _format_multi_tool_answer(state: AgentState) -> str:
 
 
 def _missing_input_message(state: AgentState) -> str:
+    resolution = state.get("context_resolution") or {}
+    if resolution.get("reason") == "missing_context":
+        return "I need the specific VM, host, or datastore name because there is no previous session context to resolve that follow-up."
     object_type = state.get("object_type")
     if object_type == "vm":
         return "I need a VM name. Example: `inspect VM name=roshellevm02`."

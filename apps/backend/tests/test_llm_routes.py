@@ -15,7 +15,7 @@ class FakeLLMModelService:
             "active_model": "gemini-test",
             "backend_discovery_configured": True,
             "engine_runtime_configured": False,
-            "missing_requirements": ["agent-engine GEMINI_API_KEY not mounted"],
+            "missing_requirements": ["agent-engine provider credential for gemini is not mounted"],
             "status": "not_configured",
         }
 
@@ -40,7 +40,6 @@ class FakeLLMModelService:
             "backend_discovery_configured": True,
             "engine_runtime_configured": False,
             "engine_runtime_updated": False,
-            "runtime_env_key": "GEMINI_API_KEY",
             "message": "Backend discovery secret saved. Agent Engine runtime was not changed.",
         }
 
@@ -74,7 +73,7 @@ def test_llm_status_route() -> None:
     data = response.json()["data"]
     assert data["backend_discovery_configured"] is True
     assert data["engine_runtime_configured"] is False
-    assert "agent-engine GEMINI_API_KEY not mounted" in data["missing_requirements"]
+    assert "agent-engine provider credential for gemini is not mounted" in data["missing_requirements"]
 
 
 def test_llm_configure_route_does_not_claim_engine_runtime_update() -> None:

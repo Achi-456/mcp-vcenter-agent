@@ -5,6 +5,28 @@ import pytest
 from app.clients import backend_client
 from app.main import run_agent
 from app.schemas.run import RunRequest
+from app.websearch import factory
+from app.websearch.schemas import WebSearchRequest, WebSearchResponse, WebSearchResult
+
+
+class FakeSearchProvider:
+    provider_name = "fake"
+
+    async def search(self, request: WebSearchRequest) -> WebSearchResponse:
+        return WebSearchResponse(
+            query=request.query,
+            results=[
+                WebSearchResult(
+                    title="Broadcom KB",
+                    url="https://knowledge.broadcom.com/example",
+                    domain="knowledge.broadcom.com",
+                    snippet="Official guidance.",
+                    source_type="official_kb",
+                    score=0.9,
+                    query=request.query,
+                )
+            ],
+        )
 
 
 @pytest.mark.asyncio
@@ -87,6 +109,34 @@ async def test_sse_emits_multiple_tool_events_for_health_summary(monkeypatch) ->
     assert event_types.count("tool_call") == 4
     assert event_types.count("tool_result") == 4
     assert event_types[-3:] == ["validation", "final", "done"]
+
+
+@pytest.mark.asyncio
+async def test_sse_emits_existing_events_for_web_search(monkeypatch) -> None:
+    monkeypatch.setenv("WEB_SEARCH_ENABLED", "true")
+    monkeypatch.setenv("TAVILY_API_KEY", "test-key")
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+
+    async def fake_get(self, endpoint, params=None):
+        return {"ok": True, "data": []}
+
+    monkeypatch.setattr(backend_client.BackendClient, "get", fake_get)
+    monkeypatch.setattr(factory, "create_web_search_provider", lambda settings=None: FakeSearchProvider())
+    response = await run_agent(RunRequest(message="troubleshoot datastore full issue", session_id="s1"))
+    body = ""
+    async for chunk in response.body_iterator:
+        body += chunk
+
+    events = [
+        json.loads(line.removeprefix("data: "))
+        for line in body.splitlines()
+        if line.startswith("data: ")
+    ]
+    assert any(event["type"] == "agent_start" and event["agent"] == "web_research_agent" for event in events)
+    assert any(event["type"] == "tool_call" and event["tool"] == "tavily_search" for event in events)
+    assert any(event["type"] == "tool_result" and event["tool"] == "tavily_search" for event in events)
 
 
 @pytest.mark.asyncio

@@ -5,11 +5,13 @@ from typing import Literal
 from langgraph.graph import END, START, StateGraph
 
 from app.clients.backend_client import BackendClient, BackendClientError
+from app.graph.context_resolver import context_resolver_node
 from app.graph.intent_router import intent_router_node
 from app.graph.reporting import format_final_answer, summarize_tool_output, validate_state
 from app.graph.safety import safety_agent_node
 from app.graph.state import AgentState
 from app.llm.reporting import review_llm_report, select_final_answer, write_llm_report
+from app.websearch.research import web_research_agent_node
 
 
 def route_by_intent(state: AgentState) -> Literal["blocked_agent", "tools_agent", "vcenter_readonly_agent", "general_agent"]:
@@ -62,6 +64,10 @@ async def deterministic_report_agent_node(state: AgentState) -> dict:
 
 async def llm_report_writer_agent_node(state: AgentState) -> dict:
     return await write_llm_report(state)
+
+
+async def web_research_node(state: AgentState) -> dict:
+    return await web_research_agent_node(state)
 
 
 async def llm_reviewer_agent_node(state: AgentState) -> dict:
@@ -126,6 +132,7 @@ async def _execute_tool_call(call: dict) -> dict:
 
 def build_graph():
     graph = StateGraph(AgentState)
+    graph.add_node("context_resolver", context_resolver_node)
     graph.add_node("intent_router", intent_router_node)
     graph.add_node("safety_agent", safety_agent_node)
     graph.add_node("blocked_agent", blocked_agent_node)
@@ -134,11 +141,13 @@ def build_graph():
     graph.add_node("general_agent", general_agent_node)
     graph.add_node("validation_agent", validation_agent_node)
     graph.add_node("deterministic_report_agent", deterministic_report_agent_node)
+    graph.add_node("web_research_agent", web_research_node)
     graph.add_node("llm_report_writer_agent", llm_report_writer_agent_node)
     graph.add_node("llm_reviewer_agent", llm_reviewer_agent_node)
     graph.add_node("final_response_selector", final_response_selector_node)
 
-    graph.add_edge(START, "intent_router")
+    graph.add_edge(START, "context_resolver")
+    graph.add_edge("context_resolver", "intent_router")
     graph.add_edge("intent_router", "safety_agent")
     graph.add_conditional_edges("safety_agent", route_by_intent)
     graph.add_edge("blocked_agent", "validation_agent")
@@ -146,7 +155,8 @@ def build_graph():
     graph.add_edge("vcenter_readonly_agent", "validation_agent")
     graph.add_edge("general_agent", "validation_agent")
     graph.add_edge("validation_agent", "deterministic_report_agent")
-    graph.add_edge("deterministic_report_agent", "llm_report_writer_agent")
+    graph.add_edge("deterministic_report_agent", "web_research_agent")
+    graph.add_edge("web_research_agent", "llm_report_writer_agent")
     graph.add_edge("llm_report_writer_agent", "llm_reviewer_agent")
     graph.add_edge("llm_reviewer_agent", "final_response_selector")
     graph.add_edge("final_response_selector", END)

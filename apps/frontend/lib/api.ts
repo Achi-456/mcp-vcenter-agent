@@ -1,4 +1,4 @@
-import type { ApiEnvelope, ServiceHealthMap, ToolListResponse } from './types'
+import type { ApiEnvelope, PersistedChatMessage, PersistedSession, ServiceHealthMap, ToolListResponse } from './types'
 
 const DEFAULT_API_BASE_URL = 'http://localhost:8000'
 
@@ -165,7 +165,11 @@ export const api = {
   getMcpDefaultStatus: () => apiGet<unknown>('/api/v1/mcp/servers/default/status'),
   getMcpTools: () => apiGet<unknown>('/api/v1/mcp/tools'),
   getTools: () => apiGet<ToolListResponse>('/api/v1/tools'),
-  getSessions: () => apiGet<unknown>('/api/v1/sessions'),
+  getSessions: () => apiGet<PersistedSession[]>('/api/v1/sessions'),
+  createSession: () => apiPost<PersistedSession>('/api/v1/sessions', {}),
+  getSession: (sessionId: string) => apiGet<PersistedSession>(`/api/v1/sessions/${encodeURIComponent(sessionId)}`),
+  getSessionMessages: (sessionId: string) =>
+    apiGet<PersistedChatMessage[]>(`/api/v1/sessions/${encodeURIComponent(sessionId)}/messages`),
   getAuditEvents: () => apiGet<unknown>('/api/v1/audit/events'),
   getLlmProviders: () => apiGet<unknown>('/api/v1/llm/providers'),
   getLlmModels: (provider: string) => apiGet<unknown>(`/api/v1/llm/models?provider=${encodeURIComponent(provider)}`, { timeoutMs: 20000 }),

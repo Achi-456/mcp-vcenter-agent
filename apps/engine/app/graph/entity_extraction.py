@@ -5,13 +5,16 @@ import re
 
 GENERIC_ENTITIES = {
     "data",
+    "drs",
     "esxi",
     "gemini",
+    "ha",
     "knowledge",
     "llm",
     "model",
     "openai",
     "storage",
+    "vmotion",
     "vmware",
     "vsphere",
     "vcenter",

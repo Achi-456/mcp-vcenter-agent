@@ -44,6 +44,8 @@ async def run_agent(request: RunRequest) -> StreamingResponse:
             "session_id": session_id,
             "run_id": run_id,
             "user_message": request.message,
+            "original_user_message": request.message,
+            "conversation_context": request.conversation_context or {},
             "errors": [],
             "findings": [],
             "tool_input": {},
@@ -136,6 +138,25 @@ async def run_agent(request: RunRequest) -> StreamingResponse:
                     )
                 )
 
+        if final_state.get("web_search_queries") or final_state.get("web_search_error"):
+            yield sse(event_payload("agent_start", agent="web_research_agent"))
+            yield sse(
+                event_payload(
+                    "tool_call",
+                    tool="tavily_search",
+                    risk_level="read_only",
+                    input_summary=_web_search_input_summary(final_state.get("web_search_queries") or []),
+                )
+            )
+            yield sse(
+                event_payload(
+                    "tool_result",
+                    tool="tavily_search",
+                    ok=not bool(final_state.get("web_search_error")),
+                    output_summary=_web_search_summary(final_state),
+                )
+            )
+
         yield sse(event_payload("validation", **(final_state.get("validation") or {"status": "passed"})))
         review = final_state.get("llm_review") or {}
         yield sse(
@@ -190,3 +211,19 @@ def _tool_summary(tool_response: Any) -> str:
             return json.dumps({key: scalar_items[key] for key in list(scalar_items.keys())[:5]}, default=str)
         return f"{len(data)} field(s) returned"
     return "result returned"
+
+
+def _web_search_input_summary(queries: list[Any]) -> str:
+    if not queries:
+        return "no search query"
+    return f"{len(queries)} query(s)"
+
+
+def _web_search_summary(state: dict[str, Any]) -> str:
+    if state.get("web_search_error"):
+        return f"{state.get('web_search_error')}: web search skipped"
+    results = state.get("web_search_results") or []
+    if not results:
+        return str(state.get("web_search_skipped_reason") or "no web results")
+    official = sum(1 for item in results if str(item.get("source_type", "")).startswith("official"))
+    return f"{len(results)} result(s), {official} official source(s)"

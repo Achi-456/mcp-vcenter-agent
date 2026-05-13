@@ -53,9 +53,32 @@ export type ChatStreamEvent = {
 }
 
 export type ChatMessage = {
-  id: string
+  id: string | number
   role: 'user' | 'assistant'
   content: string
   timestamp: string
   events?: ChatStreamEvent[]
+  metadata?: Record<string, unknown>
+}
+
+export type PersistedChatMessage = {
+  id: string | number
+  session_id: string
+  role: 'user' | 'assistant' | 'system'
+  content: string
+  metadata?: Record<string, unknown>
+  created_at: string
+}
+
+export type PersistedSession = {
+  id: string
+  session_id: string
+  title?: string | null
+  status: string
+  last_message_preview?: string | null
+  last_intent?: string | null
+  message_count?: number
+  run_count?: number
+  created_at: string
+  updated_at: string
 }

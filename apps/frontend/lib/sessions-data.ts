@@ -26,9 +26,9 @@ export function normalizeSessions(payload: unknown): NormalizedSession[] {
     id: stringValue(session, ['session_id', 'id', 'run_id'], `session-${index + 1}`),
     createdAt: stringValue(session, ['created_at', 'createdAt', 'timestamp'], '—'),
     updatedAt: stringValue(session, ['updated_at', 'updatedAt', 'last_updated'], '—'),
-    prompt: stringValue(session, ['last_prompt', 'prompt', 'objective', 'message'], '—'),
+    prompt: stringValue(session, ['last_message_preview', 'title', 'last_prompt', 'prompt', 'objective', 'message'], '—'),
     status: stringValue(session, ['status', 'state'], 'unknown'),
-    count: stringValue(session, ['tool_count', 'run_count', 'tools', 'runs'], '—'),
+    count: stringValue(session, ['message_count', 'tool_count', 'run_count', 'tools', 'runs'], '—'),
     raw: redactSensitive(session),
   }))
 }

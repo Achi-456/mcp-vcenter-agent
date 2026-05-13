@@ -12,12 +12,13 @@ class AgentClient:
         self.base_url = (base_url or get_settings().agent_engine_url).rstrip("/")
 
     async def stream_run(self, request: ChatRequest) -> AsyncIterator[str]:
+        payload = request.model_dump(exclude_none=True)
         try:
             async with httpx.AsyncClient(timeout=300) as client:
                 async with client.stream(
                     "POST",
                     f"{self.base_url}/run",
-                    json=request.model_dump(),
+                    json=payload,
                     headers={"Accept": "text/event-stream"},
                 ) as response:
                     response.raise_for_status()

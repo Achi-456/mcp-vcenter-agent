@@ -18,3 +18,4 @@ apps/frontend/.next/
 apps/frontend/node_modules/
 dclab-local-ca.crt
 .agents/
+apps.zip

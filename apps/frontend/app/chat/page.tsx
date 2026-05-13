@@ -1,11 +1,23 @@
 'use client'
 
+import { Suspense } from 'react'
 import { ChatComposer, ChatMessageList, PromptSuggestions } from '@/components/chat'
 import { ErrorState, PageHeader, RefreshButton, SectionCard, StatusBadge, ToolBadge } from '@/components/ui'
 import { useChatStream } from '@/hooks/use-chat-stream'
+import { useSearchParams } from 'next/navigation'
 
 export default function ChatPage() {
-  const { messages, sessionId, isStreaming, streamError, sendMessage, startNewSession } = useChatStream()
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-ops-muted">Loading chat...</div>}>
+      <ChatContent />
+    </Suspense>
+  )
+}
+
+function ChatContent() {
+  const searchParams = useSearchParams()
+  const initialSessionId = searchParams.get('session_id')
+  const { messages, sessionId, isStreaming, isLoadingHistory, streamError, sendMessage, startNewSession } = useChatStream(initialSessionId)
   const toolEvents = messages.flatMap((message) => message.events ?? []).filter((event) => event.type === 'tool_call')
   const blockedEvents = messages.flatMap((message) => message.events ?? []).filter((event) => event.type === 'safety_check' && event.payload.allowed === false)
 
@@ -27,7 +39,7 @@ export default function ChatPage() {
                 <p className="mt-1 font-mono text-xs text-ops-muted">{sessionId ?? 'New session will be assigned on first stream event.'}</p>
               </div>
               <div className="flex flex-wrap gap-2">
-                <StatusBadge status={isStreaming ? 'streaming' : 'ready'} />
+                <StatusBadge status={isStreaming ? 'streaming' : isLoadingHistory ? 'loading' : 'ready'} />
                 <ToolBadge label={`${toolEvents.length} tool call(s)`} />
                 {blockedEvents.length ? <ToolBadge label={`${blockedEvents.length} blocked`} active={false} /> : null}
               </div>
@@ -37,6 +49,7 @@ export default function ChatPage() {
           {streamError ? <ErrorState title="Chat stream failed" message={streamError} code="STREAM_ERROR" /> : null}
 
           <div className="max-h-[calc(100vh-18rem)] overflow-y-auto rounded-3xl border border-ops-steel/10 bg-ops-cream/70 p-5">
+            {isLoadingHistory ? <p className="mb-4 text-sm text-ops-muted">Loading session history...</p> : null}
             <ChatMessageList messages={messages} />
           </div>
         </section>
@@ -71,7 +84,7 @@ export default function ChatPage() {
 
       <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-ops-steel/10 bg-ops-cream/95 p-4 backdrop-blur lg:left-72">
         <div className="mx-auto max-w-7xl">
-          <ChatComposer disabled={isStreaming} onSend={sendMessage} />
+          <ChatComposer disabled={isStreaming || isLoadingHistory} onSend={sendMessage} />
         </div>
       </div>
     </div>

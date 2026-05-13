@@ -23,6 +23,12 @@ class Settings(BaseSettings):
     llm_max_input_chars: int = Field(default=60000, alias="LLM_MAX_INPUT_CHARS")
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
     gemini_api_key: str | None = Field(default=None, alias="GEMINI_API_KEY")
+    web_search_enabled: bool = Field(default=False, alias="WEB_SEARCH_ENABLED")
+    web_search_provider: str = Field(default="tavily", alias="WEB_SEARCH_PROVIDER")
+    tavily_api_key: str | None = Field(default=None, alias="TAVILY_API_KEY")
+    web_search_max_results: int = Field(default=5, alias="WEB_SEARCH_MAX_RESULTS")
+    web_search_timeout_seconds: float = Field(default=20.0, alias="WEB_SEARCH_TIMEOUT_SECONDS")
+    web_search_official_first: bool = Field(default=True, alias="WEB_SEARCH_OFFICIAL_FIRST")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
 
