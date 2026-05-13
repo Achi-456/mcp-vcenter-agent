@@ -9,4 +9,9 @@ data:
   BACKEND_URL: "http://fastapi.agentic-app.svc.cluster.local:8000"
   AGENT_MAX_TURNS: "20"
   AGENT_SUMMARIZE_EVERY: "5"
+  WEB_SEARCH_ENABLED: "true"
+  WEB_SEARCH_PROVIDER: "tavily"
+  WEB_SEARCH_MAX_RESULTS: "5"
+  WEB_SEARCH_TIMEOUT_SECONDS: "20"
+  WEB_SEARCH_OFFICIAL_FIRST: "true"
 
